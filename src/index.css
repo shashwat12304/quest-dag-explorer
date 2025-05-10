@@ -1,3 +1,4 @@
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -97,5 +98,23 @@
 
   body {
     @apply bg-background text-foreground;
+  }
+}
+
+@layer components {
+  .research-node-waiting {
+    @apply bg-research-node-waiting border-research-node-border;
+  }
+  
+  .research-node-active {
+    @apply bg-white border-research-node-active border-2 shadow-md;
+  }
+  
+  .research-node-completed {
+    @apply bg-white border-research-node-completed border-2;
+  }
+  
+  .research-node-error {
+    @apply bg-red-50 border-red-500 border-2;
   }
 }
