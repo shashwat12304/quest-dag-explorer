@@ -3,7 +3,8 @@ import { useState } from 'react';
 import { ResearchHistory as History, ResearchPlan } from '@/types/dag';
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Search } from 'lucide-react';
+import { Search, Clock, BookOpen } from 'lucide-react';
+import { motion } from 'framer-motion';
 
 interface ResearchHistoryProps {
   history: History;
@@ -40,15 +41,20 @@ const ResearchHistory = ({
   return (
     <div className="flex flex-col h-full">
       <div className="p-4 border-b">
-        <h2 className="text-lg font-medium">Research History</h2>
-        <div className="relative mt-2">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <BookOpen className="h-5 w-5 text-research-primary" />
+            <h2 className="text-lg font-medium">Research History</h2>
+          </div>
+        </div>
+        <div className="relative">
           <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-            <Search className="h-4 w-4 text-gray-400" />
+            <Search className="h-4 w-4 text-muted-foreground" />
           </div>
           <input
             type="text"
             placeholder="Search history..."
-            className="pl-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
+            className="pl-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />
@@ -57,15 +63,25 @@ const ResearchHistory = ({
       <ScrollArea className="flex-1">
         <div className="p-4 space-y-2">
           {filteredHistory.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-4">No research history found</p>
+            <div className="text-center py-8 px-4">
+              <Clock className="h-12 w-12 mx-auto text-muted-foreground opacity-50 mb-2" />
+              <p className="text-sm text-muted-foreground">
+                Your research history will appear here
+              </p>
+            </div>
           ) : (
-            filteredHistory.map((item) => (
-              <button
+            filteredHistory.map((item, index) => (
+              <motion.button
                 key={item.id}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3, delay: index * 0.05 }}
                 className={cn(
-                  "w-full text-left p-3 rounded-md hover:bg-accent hover:text-accent-foreground transition-colors",
-                  "border border-border",
-                  currentResearchId === item.id && "bg-accent text-accent-foreground"
+                  "w-full text-left p-3 rounded-md transition-all duration-200 hover:scale-[1.01]",
+                  "border dark:bg-sidebar-accent/30 backdrop-blur-sm",
+                  currentResearchId === item.id ? 
+                    "border-research-primary dark:bg-sidebar-accent/50 shadow-md" : 
+                    "border-border hover:border-research-primary/50"
                 )}
                 onClick={() => onSelectResearch(item)}
               >
@@ -76,7 +92,7 @@ const ResearchHistory = ({
                 <p className="text-xs text-muted-foreground mt-1">
                   {new Date(item.timestamp).toLocaleString()}
                 </p>
-              </button>
+              </motion.button>
             ))
           )}
         </div>

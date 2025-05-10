@@ -23,13 +23,6 @@ interface DAGViewerProps {
   isEditable?: boolean;
 }
 
-const nodeColorMap = {
-  waiting: 'research-node-waiting',
-  active: 'research-node-active',
-  completed: 'research-node-completed',
-  error: 'research-node-error',
-};
-
 const DAGViewer = ({ nodes, edges, onNodeClick, isEditable = false }: DAGViewerProps) => {
   // Convert our research nodes to ReactFlow nodes
   const initialNodes: Node[] = nodes.map((node) => ({
@@ -40,7 +33,7 @@ const DAGViewer = ({ nodes, edges, onNodeClick, isEditable = false }: DAGViewerP
       description: node.description,
     },
     position: { x: 0, y: 0 }, // Will be auto-layouted
-    className: `${nodeColorMap[node.status]} p-3 border rounded-md shadow-sm`,
+    className: getNodeClass(node.status),
   }));
 
   // Convert our research edges to ReactFlow edges
@@ -49,11 +42,46 @@ const DAGViewer = ({ nodes, edges, onNodeClick, isEditable = false }: DAGViewerP
     source: edge.source,
     target: edge.target,
     animated: edge.source === nodes.find(n => n.status === 'active')?.id,
-    style: { stroke: '#A5B4FC', strokeWidth: 2 },
+    style: { stroke: getEdgeColor(edge, nodes), strokeWidth: 2 },
+    className: 'transition-all duration-300',
   }));
 
   const [reactNodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [reactEdges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+
+  // Function to determine edge color based on connected node statuses
+  function getEdgeColor(edge: ResearchEdge, nodes: ResearchNode[]): string {
+    const sourceNode = nodes.find(n => n.id === edge.source);
+    const targetNode = nodes.find(n => n.id === edge.target);
+    
+    if (sourceNode?.status === 'active' || targetNode?.status === 'active') {
+      return '#4F46E5'; // Active edge - vibrant purple
+    } else if (sourceNode?.status === 'completed' && targetNode?.status === 'completed') {
+      return '#4ADE80'; // Completed edge - green
+    } else if (sourceNode?.status === 'error' || targetNode?.status === 'error') {
+      return '#EF4444'; // Error edge - red
+    } else {
+      return '#A5B4FC'; // Default edge - light purple
+    }
+  }
+  
+  // Function to determine node class based on status
+  function getNodeClass(status: string): string {
+    const baseClass = "p-3 border rounded-md shadow-sm transition-all duration-300";
+    
+    switch (status) {
+      case 'waiting':
+        return `${baseClass} research-node-waiting`;
+      case 'active':
+        return `${baseClass} research-node-active`;
+      case 'completed':
+        return `${baseClass} research-node-completed`;
+      case 'error':
+        return `${baseClass} research-node-error`;
+      default:
+        return baseClass;
+    }
+  }
 
   // Auto-layout nodes in useEffect
   useEffect(() => {
@@ -116,7 +144,7 @@ const DAGViewer = ({ nodes, edges, onNodeClick, isEditable = false }: DAGViewerP
           description: node.description,
         },
         position: { x, y },
-        className: `${nodeColorMap[node.status]} p-3 border rounded-md shadow-sm`,
+        className: getNodeClass(node.status),
       };
     }).filter(Boolean) as Node[];
     
@@ -141,7 +169,7 @@ const DAGViewer = ({ nodes, edges, onNodeClick, isEditable = false }: DAGViewerP
   );
 
   return (
-    <div className="w-full h-full">
+    <div className="w-full h-full bg-gradient-to-br from-background to-background/50">
       <ReactFlow
         nodes={reactNodes}
         edges={reactEdges}
@@ -155,9 +183,18 @@ const DAGViewer = ({ nodes, edges, onNodeClick, isEditable = false }: DAGViewerP
         nodesConnectable={isEditable}
         elementsSelectable={isEditable}
       >
-        <Controls />
-        <MiniMap />
-        <Background gap={12} size={1} />
+        <Controls className="bg-card border shadow-md rounded-md" />
+        <MiniMap 
+          className="bg-card border shadow-md rounded-md !bottom-14 !right-2"
+          nodeBorderRadius={8}
+          maskColor="rgba(0, 0, 0, 0.1)"
+        />
+        <Background 
+          gap={16} 
+          size={1} 
+          color="currentColor" 
+          className="text-border/30"
+        />
       </ReactFlow>
     </div>
   );

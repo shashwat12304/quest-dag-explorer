@@ -1,5 +1,5 @@
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ResearchHistory, ResearchPlan, ResearchNode } from '@/types/dag';
 import { SidebarProvider, Sidebar, SidebarContent } from '@/components/ui/sidebar';
 import ResearchHistoryComponent from '@/components/ResearchHistory';
@@ -9,6 +9,8 @@ import ResearchDetails from '@/components/ResearchDetails';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
+import { Moon, Sun } from 'lucide-react';
+import { ThemeToggle } from '@/components/ThemeToggle';
 
 // Mock data generator function for demo purposes
 const generateMockResearch = (query: string): ResearchPlan => {
@@ -59,6 +61,7 @@ const ResearchLayout = () => {
   const [currentResearch, setCurrentResearch] = useState<ResearchPlan | null>(null);
   const [selectedNode, setSelectedNode] = useState<ResearchNode | undefined>();
   const [isEditable, setIsEditable] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   
   // Handlers
   const handleSubmitQuery = (query: string) => {
@@ -121,11 +124,15 @@ const ResearchLayout = () => {
     setIsEditable(false);
     toast.success("Research plan updated");
   };
+
+  const toggleSidebar = () => {
+    setSidebarCollapsed(!sidebarCollapsed);
+  };
   
   return (
     <SidebarProvider>
-      <div className="min-h-screen flex w-full">
-        <Sidebar defaultCollapsed={false} collapsible>
+      <div className="min-h-screen flex w-full bg-background text-foreground transition-colors duration-300">
+        <Sidebar defaultCollapsed={sidebarCollapsed} collapsible="icon">
           <SidebarContent className="w-80">
             <ResearchHistoryComponent 
               history={researchHistory}
@@ -136,13 +143,22 @@ const ResearchLayout = () => {
         </Sidebar>
         
         <div className="flex-1 flex flex-col h-screen overflow-hidden">
+          <div className="p-4 border-b flex justify-between items-center bg-card/50 backdrop-blur-sm shadow-sm">
+            <h1 className="text-xl font-semibold">Deep Research Assistant</h1>
+            <div className="flex items-center gap-2">
+              <ThemeToggle />
+            </div>
+          </div>
+          
           {currentResearch ? (
             <>
-              <div className="p-4 border-b">
+              <div className="p-4 border-b bg-card/30 backdrop-blur-sm">
                 <div className="flex items-center justify-between">
-                  <h1 className="text-xl font-semibold">{currentResearch.query}</h1>
+                  <h2 className="text-lg font-semibold">{currentResearch.query}</h2>
                   {isEditable && (
-                    <Button onClick={handleSaveEdits}>Save Edits</Button>
+                    <Button onClick={handleSaveEdits} variant="default" className="bg-research-accent hover:bg-research-accent/80 text-white transition-colors">
+                      Save Edits
+                    </Button>
                   )}
                 </div>
                 <p className="text-sm text-muted-foreground">
@@ -160,7 +176,7 @@ const ResearchLayout = () => {
                   />
                 </div>
                 
-                <div className="w-80 border-l overflow-y-auto">
+                <div className="w-80 border-l overflow-y-auto bg-card/30 backdrop-blur-sm">
                   <ResearchDetails selectedNode={selectedNode} />
                 </div>
               </div>
@@ -177,8 +193,8 @@ const ResearchLayout = () => {
             </>
           ) : (
             <div className="flex-1 flex items-center justify-center flex-col p-4">
-              <div className="max-w-md text-center">
-                <h1 className="text-2xl font-bold mb-2">Deep Research Assistant</h1>
+              <div className="max-w-md text-center p-8 rounded-xl bg-card shadow-lg border border-border/50">
+                <h1 className="text-2xl font-bold mb-2 bg-gradient-to-r from-research-primary to-research-accent bg-clip-text text-transparent">Deep Research Assistant</h1>
                 <p className="text-muted-foreground mb-6">
                   Enter a research question below to start a deep research process using a 
                   Directed Acyclic Graph (DAG) approach.
