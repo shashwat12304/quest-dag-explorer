@@ -1,4 +1,3 @@
-
 import { useCallback, useEffect } from 'react';
 import { 
   ReactFlow,
@@ -11,10 +10,52 @@ import {
   Connection,
   Edge,
   Node,
+  MarkerType,
+  NodeProps,
+  Handle,
+  Position
 } from '@xyflow/react';
 import { ResearchNode, ResearchEdge } from '@/types/dag';
 
 import '@xyflow/react/dist/style.css';
+import './dagviewer-overrides.css';
+
+// Simple node component styled to match the image
+function ResearchNodeComponent({ data, isConnectable }: NodeProps) {
+  // Get label from data with fallbacks
+  const label = typeof data?.label === 'string' ? data.label : 'Research Task';
+  const fullTitle = typeof data?.fullTitle === 'string' ? data.fullTitle : label;
+  
+  return (
+    <div 
+      className="px-4 py-3 bg-white dark:bg-gray-800 border-2 border-blue-500 rounded-lg shadow-md text-center node-content"
+      title={fullTitle} // Show full title on hover
+    >
+      <Handle 
+        type="target" 
+        position={Position.Left} 
+        isConnectable={isConnectable} 
+        className="w-3 h-3 bg-blue-500 border border-white" 
+        style={{ left: -7 }}
+      />
+      <div className="font-bold text-sm text-wrap node-title">
+        {label}
+      </div>
+      <Handle 
+        type="source" 
+        position={Position.Right} 
+        isConnectable={isConnectable} 
+        className="w-3 h-3 bg-blue-500 border border-white" 
+        style={{ right: -7 }}
+      />
+    </div>
+  );
+}
+
+// Define the node types
+const nodeTypes = {
+  researchNode: ResearchNodeComponent,
+};
 
 interface DAGViewerProps {
   nodes: ResearchNode[];
@@ -25,16 +66,30 @@ interface DAGViewerProps {
 
 const DAGViewer = ({ nodes, edges, onNodeClick, isEditable = false }: DAGViewerProps) => {
   // Convert our research nodes to ReactFlow nodes
-  const initialNodes: Node[] = nodes.map((node) => ({
-    id: node.id,
-    data: { 
-      label: node.label,
-      status: node.status,
-      description: node.description,
-    },
-    position: { x: 0, y: 0 }, // Will be auto-layouted
-    className: getNodeClass(node.status),
-  }));
+  const initialNodes: Node[] = nodes.map((node) => {
+    // Get node title with truncation for display
+    const nodeTitle = node.label || (node.data && node.data.title) || "Research Task";
+    const truncatedLabel = nodeTitle.length > 30 ? nodeTitle.substring(0, 27) + '...' : nodeTitle;
+    
+    return {
+      id: node.id,
+      type: 'researchNode', // Use our custom node component
+      data: { 
+        label: truncatedLabel,
+        fullTitle: nodeTitle, // Store full title for tooltip
+      },
+      position: { x: 0, y: 0 }, // Will be auto-layouted
+      className: getNodeClass(node.status),
+      style: {
+        background: 'white',
+        border: '2px solid #3b82f6',
+        borderRadius: '8px',
+        padding: '10px 15px',
+        minWidth: 150,
+        boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
+      }
+    };
+  });
 
   // Convert our research edges to ReactFlow edges
   const initialEdges: Edge[] = edges.map((edge) => ({
@@ -42,8 +97,22 @@ const DAGViewer = ({ nodes, edges, onNodeClick, isEditable = false }: DAGViewerP
     source: edge.source,
     target: edge.target,
     animated: edge.source === nodes.find(n => n.status === 'active')?.id,
-    style: { stroke: getEdgeColor(edge, nodes), strokeWidth: 2 },
-    className: 'transition-all duration-300',
+    type: 'smoothstep', // Use smoothstep for better horizontal connections
+    style: { 
+      stroke: getEdgeColor(edge, nodes), 
+      strokeWidth: 2.5, 
+      strokeOpacity: 0.9
+    },
+    className: `transition-all duration-300 dag-edge ${getEdgeStatusClass(edge, nodes)}`,
+    markerEnd: {
+      type: MarkerType.ArrowClosed,
+      width: 15,
+      height: 15,
+      color: getEdgeColor(edge, nodes)
+    },
+    data: edge.data,
+    // Add a title attribute for tooltip on hover
+    ariaLabel: `Connection from ${getNodeLabel(edge.source, nodes)} to ${getNodeLabel(edge.target, nodes)}`,
   }));
 
   const [reactNodes, setNodes, onNodesChange] = useNodesState(initialNodes);
@@ -61,10 +130,26 @@ const DAGViewer = ({ nodes, edges, onNodeClick, isEditable = false }: DAGViewerP
     } else if (sourceNode?.status === 'error' || targetNode?.status === 'error') {
       return '#EF4444'; // Error edge - red
     } else {
-      return '#A5B4FC'; // Default edge - light purple
+      return '#3b82f6'; // Default edge - brighter blue for better visibility
     }
   }
   
+  // Function to determine edge status class based on connected nodes
+  function getEdgeStatusClass(edge: ResearchEdge, nodes: ResearchNode[]): string {
+    const sourceNode = nodes.find(n => n.id === edge.source);
+    const targetNode = nodes.find(n => n.id === edge.target);
+    
+    if (sourceNode?.status === 'active' || targetNode?.status === 'active') {
+      return 'research-edge-active';
+    } else if (sourceNode?.status === 'completed' && targetNode?.status === 'completed') {
+      return 'research-edge-completed';
+    } else if (sourceNode?.status === 'error' || targetNode?.status === 'error') {
+      return 'research-edge-error';
+    } else {
+      return '';
+    }
+  }
+
   // Function to determine node class based on status
   function getNodeClass(status: string): string {
     const baseClass = "p-3 border rounded-md shadow-sm transition-all duration-300";
@@ -85,70 +170,141 @@ const DAGViewer = ({ nodes, edges, onNodeClick, isEditable = false }: DAGViewerP
 
   // Auto-layout nodes in useEffect
   useEffect(() => {
-    // Simple layout algorithm - this could be replaced with a more sophisticated one
-    const nodeMap = new Map(nodes.map((node, index) => [
-      node.id, 
-      { ...node, level: 0, position: { x: 0, y: index * 100 } }
-    ]));
+    // Simple yet effective DAG layout algorithm
     
-    // Calculate node levels
+    // Step 1: Create a map to store node data
+    const nodeMap = new Map();
+    nodes.forEach(node => {
+      nodeMap.set(node.id, { 
+        ...node, 
+        level: 0,  // Horizontal position (column)
+        position: 0, // Vertical position within level (row)
+        children: [],
+        parents: []
+      });
+    });
+    
+    // Step 2: Build the graph structure - identify parents and children
     edges.forEach(edge => {
-      const targetNode = nodeMap.get(edge.target);
-      const sourceNode = nodeMap.get(edge.source);
-      
-      if (targetNode && sourceNode) {
-        targetNode.level = Math.max(targetNode.level, sourceNode.level + 1);
+      const source = nodeMap.get(edge.source);
+      const target = nodeMap.get(edge.target);
+      if (source && target) {
+        source.children.push(target.id);
+        target.parents.push(source.id);
       }
     });
     
-    // Position nodes based on levels
-    const levelCounts = new Map<number, number>();
-    const levelWidths = new Map<number, number>();
-    const nodeWidth = 200;
-    const nodeHeight = 80;
-    const horizontalSpacing = 250;
-    const verticalSpacing = 100;
+    // Step 3: Find root nodes (nodes with no parents)
+    const rootNodes = Array.from(nodeMap.values()).filter(node => node.parents.length === 0);
     
-    // Count nodes per level
-    nodeMap.forEach(node => {
-      const count = levelCounts.get(node.level) || 0;
-      levelCounts.set(node.level, count + 1);
+    // Step 4: Assign levels using a topological approach (breadth-first)
+    const assignLevels = () => {
+      const queue = [...rootNodes];
+      
+      while (queue.length > 0) {
+        const current = queue.shift();
+        if (!current) continue;
+        
+        // Process all children
+        for (const childId of current.children) {
+          const child = nodeMap.get(childId);
+          if (child) {
+            // Child's level is at least one more than parent's level
+            child.level = Math.max(child.level, current.level + 1);
+            
+            // Only queue a node after we've processed all its parents
+            const allParentsProcessed = child.parents.every(parentId => {
+              const parent = nodeMap.get(parentId);
+              return parent && parent.level < child.level;
+            });
+            
+            if (allParentsProcessed && !queue.includes(child)) {
+              queue.push(child);
+            }
+          }
+        }
+      }
+    };
+    
+    assignLevels();
+    
+    // Step 5: Determine the maximum level to know the number of columns
+    const maxLevel = Math.max(...Array.from(nodeMap.values()).map(node => node.level));
+    
+    // Step 6: Count nodes at each level for vertical positioning
+    const levelCounts = {};
+    const levelPositions = {};
+    
+    Array.from(nodeMap.values()).forEach(node => {
+      levelCounts[node.level] = (levelCounts[node.level] || 0) + 1;
+      levelPositions[node.level] = levelPositions[node.level] || 0;
     });
     
-    // Calculate width per level
-    levelCounts.forEach((count, level) => {
-      levelWidths.set(level, count * (nodeWidth + 20));
-    });
+    // Calculate optimal horizontal gap based on graph breadth and depth
+    const totalNodes = nodes.length;
+    const maxNodesInAnyLevel = Math.max(...Object.values(levelCounts).map(count => Number(count)));
     
-    // Position nodes
-    const levelPositions = new Map<number, number>();
+    // Estimate average node label length
+    const avgTitleLength = Math.max(
+      20,
+      nodes.reduce((sum, node) => sum + ((node.label || 
+        (node.data && node.data.title) || 
+        "Research Task").length), 0) / totalNodes
+    );
     
+    // Adjust spacing based on graph structure and content
+    const isComplex = maxLevel >= 4 || maxNodesInAnyLevel >= 4 || avgTitleLength > 30;
+    
+    // Step 7: Position nodes with fixed spacing
+    const horizontalGap = Math.max(
+      400, 
+      250 + (50 * maxLevel) + (isComplex ? 100 : 0)
+    ); // Dynamic horizontal gap based on graph complexity
+    
+    const verticalGap = Math.max(
+      130, 
+      100 + (15 * maxNodesInAnyLevel) + (isComplex ? 20 : 0)
+    ); // Dynamic vertical gap based on level density
+    
+    const startX = 180;        // Left margin (slightly increased)
+    const startY = 80;         // Top margin
+    
+    // Create React Flow nodes with the calculated positions
     const updatedNodes = nodes.map(node => {
-      const nodeWithPos = nodeMap.get(node.id);
-      if (!nodeWithPos) return null;
+      const nodeData = nodeMap.get(node.id);
+      if (!nodeData) return null;
       
-      const level = nodeWithPos.level;
-      let levelPosition = levelPositions.get(level) || 0;
+      // Calculate positions with slight offset for better distribution
+      // Use node level for offset calculation with greater staggering for complex graphs
+      const levelOffset = (nodeData.level % 2 === 0) ? 0 : verticalGap / (isComplex ? 3 : 4);
+      const positionOffset = (nodeData.position % 2 === 0) ? 0 : horizontalGap / 20; // Slight horizontal offset
       
-      const x = level * horizontalSpacing;
-      const y = levelPosition;
-      
-      levelPosition += verticalSpacing;
-      levelPositions.set(level, levelPosition);
+      const x = startX + (nodeData.level * horizontalGap) + positionOffset;
+      const y = startY + (levelPositions[nodeData.level]++ * verticalGap) + levelOffset;
       
       return {
         id: node.id,
-        data: { 
-          label: node.label,
-          status: node.status,
-          description: node.description,
-        },
+        type: 'researchNode',
         position: { x, y },
         className: getNodeClass(node.status),
+        style: { 
+          zIndex: 10,
+          background: 'white',
+          border: '2px solid #3b82f6',
+          borderRadius: '8px',
+          padding: '10px',
+        },
+        data: { 
+          label: node.label || 
+                 (node.data && node.data.title) || 
+                 "Research Task"
+        }
       };
     }).filter(Boolean) as Node[];
     
+    // Update the nodes state
     setNodes(updatedNodes);
+    
   }, [nodes, edges, setNodes]);
 
   const onConnect = useCallback(
@@ -168,8 +324,14 @@ const DAGViewer = ({ nodes, edges, onNodeClick, isEditable = false }: DAGViewerP
     [nodes, onNodeClick]
   );
 
+  // Helper function to get a node's label by ID
+  function getNodeLabel(nodeId: string, nodes: ResearchNode[]): string {
+    const node = nodes.find(n => n.id === nodeId);
+    return node?.label || 'Unknown Node';
+  }
+
   return (
-    <div className="w-full h-full bg-gradient-to-br from-background to-background/50">
+    <div className="w-full h-full bg-gradient-to-br from-background to-card/80 p-8 rounded-lg shadow-inner">
       <ReactFlow
         nodes={reactNodes}
         edges={reactEdges}
@@ -177,11 +339,22 @@ const DAGViewer = ({ nodes, edges, onNodeClick, isEditable = false }: DAGViewerP
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         onNodeClick={handleNodeClick}
+        nodeTypes={nodeTypes}
         fitView
+        fitViewOptions={{
+          padding: 0.5,
+          includeHiddenNodes: true,
+          maxZoom: 1.5,
+        }}
+        defaultEdgeOptions={{
+          style: { strokeWidth: 4 },
+          type: 'bezier',
+        }}
         attributionPosition="bottom-right"
         nodesDraggable={isEditable}
         nodesConnectable={isEditable}
         elementsSelectable={isEditable}
+        className="rounded-lg border border-border shadow-lg bg-white/80 dark:bg-gray-900/80"
       >
         <Controls className="bg-card border shadow-md rounded-md" />
         <MiniMap 

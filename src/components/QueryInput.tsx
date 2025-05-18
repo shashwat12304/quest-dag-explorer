@@ -1,8 +1,7 @@
-
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Play, Pause, Edit, ChevronUp, ChevronDown } from 'lucide-react';
+import { Play, Pause, Edit, ChevronUp, ChevronDown, Search, Loader2 } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 interface QueryInputProps {
@@ -13,6 +12,7 @@ interface QueryInputProps {
   isResearchRunning: boolean;
   isPaused: boolean;
   currentQuery?: string;
+  isProcessing?: boolean;
 }
 
 const QueryInput = ({
@@ -23,6 +23,7 @@ const QueryInput = ({
   isResearchRunning,
   isPaused,
   currentQuery = '',
+  isProcessing = false,
 }: QueryInputProps) => {
   const [query, setQuery] = useState('');
   const [isMinimized, setIsMinimized] = useState(false);
@@ -43,86 +44,99 @@ const QueryInput = ({
     <div className="border-t bg-card shadow-lg transition-all duration-300">
       <div className="flex items-center justify-between px-4 py-2 border-b">
         <div className="font-medium text-sm">Research Query</div>
-        <Button 
-          variant="ghost" 
-          size="icon" 
-          onClick={toggleMinimize} 
-          className="h-6 w-6"
-        >
-          {isMinimized ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-        </Button>
       </div>
-      
-      <motion.div 
-        className="overflow-hidden"
-        initial={{ height: 'auto' }}
-        animate={{ height: isMinimized ? 0 : 'auto' }}
-        transition={{ duration: 0.3 }}
-      >
-        <div className="p-4">
-          {isResearchRunning && (
-            <div className="flex items-center space-x-2 mb-4">
-              {isPaused ? (
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  onClick={onResumeResearch}
-                  className="flex items-center gap-2 border-research-secondary text-research-secondary hover:bg-research-secondary/10"
-                >
-                  <Play className="h-4 w-4" />
-                  Resume
-                </Button>
-              ) : (
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  onClick={onPauseResearch}
-                  className="flex items-center gap-2 border-amber-500 text-amber-500 hover:bg-amber-500/10"
-                >
-                  <Pause className="h-4 w-4" />
-                  Pause
-                </Button>
-              )}
+      <div className="p-4">
+        {isResearchRunning && (
+          <div className="flex items-center space-x-2 mb-4">
+            {isPaused ? (
               <Button 
                 variant="outline" 
                 size="sm" 
-                onClick={onEditResearch}
-                disabled={!isPaused}
-                className={cn(
-                  "flex items-center gap-2",
-                  !isPaused ? "opacity-50" : "border-blue-500 text-blue-500 hover:bg-blue-500/10"
-                )}
+                onClick={onResumeResearch}
+                className="flex items-center gap-2 border-research-secondary text-white bg-research-secondary hover:bg-research-secondary/80 focus-visible:ring-2 focus-visible:ring-research-secondary shadow-md font-semibold"
               >
-                <Edit className="h-4 w-4" />
-                Edit Plan
+                <Play className="h-4 w-4" />
+                Resume
               </Button>
-              
-              {isResearchRunning && currentQuery && (
-                <div className="text-sm text-muted-foreground ml-auto">
-                  Current: <span className="font-medium">{currentQuery}</span>
-                </div>
-              )}
-            </div>
-          )}
-
-          <form onSubmit={handleSubmit} className="flex items-center space-x-2">
-            <Input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Enter your research query..."
-              disabled={isResearchRunning && !isPaused}
-              className="flex-1 focus-visible:ring-research-primary h-12 text-base md:text-lg"
-            />
+            ) : (
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={onPauseResearch}
+                className="flex items-center gap-2 border-amber-500 text-white bg-amber-500 hover:bg-amber-600 focus-visible:ring-2 focus-visible:ring-amber-500 shadow-md font-semibold"
+              >
+                <Pause className="h-4 w-4" />
+                Pause
+              </Button>
+            )}
             <Button 
-              type="submit" 
-              disabled={isResearchRunning && !isPaused}
-              className="bg-gradient-to-r from-research-primary to-research-accent hover:opacity-90 transition-opacity text-white h-12 px-6"
+              variant="outline" 
+              size="sm" 
+              onClick={onEditResearch}
+              disabled={!isPaused}
+              className={cn(
+                "flex items-center gap-2 border-blue-500 text-white bg-blue-500 hover:bg-blue-600 focus-visible:ring-2 focus-visible:ring-blue-500 shadow-md font-semibold",
+                !isPaused ? "opacity-50 cursor-not-allowed" : ""
+              )}
             >
-              Research
+              <Edit className="h-4 w-4" />
+              Edit Plan
             </Button>
-          </form>
-        </div>
-      </motion.div>
+            {isResearchRunning && currentQuery && (
+              <div className="text-sm text-muted-foreground ml-auto">
+                Current: <span className="font-medium">{currentQuery}</span>
+              </div>
+            )}
+          </div>
+        )}
+        
+        <form onSubmit={handleSubmit} className="flex gap-2">
+          <Input
+            placeholder="Enter a research question..."
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="flex-1"
+            disabled={isProcessing || isResearchRunning}
+          />
+          <Button 
+            type="submit" 
+            disabled={!query.trim() || isProcessing || isResearchRunning}
+            className="bg-research-primary hover:bg-research-primary/80"
+          >
+            {isProcessing ? (
+              <>
+                <motion.div
+                  animate={{ rotate: 360 }}
+                  transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                  className="mr-2"
+                >
+                  <Loader2 className="h-4 w-4" />
+                </motion.div>
+                Processing...
+              </>
+            ) : (
+              <>
+                <Search className="h-4 w-4 mr-2" />
+                Research
+              </>
+            )}
+          </Button>
+        </form>
+        
+        {isProcessing && (
+          <div className="mt-4 p-2 bg-research-primary/10 border border-research-primary/30 rounded-md">
+            <div className="text-sm text-research-primary font-medium flex items-center gap-2">
+              <motion.div
+                animate={{ rotate: 360 }}
+                transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+              >
+                <Loader2 className="h-4 w-4" />
+              </motion.div>
+              Generating research DAG. This may take a few moments...
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 };

@@ -1,0 +1,140 @@
+/* Ensure React Flow controls are visible in dark mode */
+.dark .react-flow__controls {
+  background: #222 !important;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+.dark .react-flow__controls button {
+  color: #fff !important;
+  background: #333 !important;
+  border: 1px solid #444 !important;
+}
+.dark .react-flow__controls button:hover {
+  background: #444 !important;
+  color: #ffd700 !important;
+}
+
+/* Enhanced Edge Styling */
+.dag-edge {
+  transition: all 0.3s ease;
+  filter: drop-shadow(0 0 4px rgba(0, 0, 0, 0.4));
+}
+
+.dag-edge:hover {
+  filter: drop-shadow(0 0 10px rgba(59, 130, 246, 0.7));
+  stroke-width: 6px !important;
+}
+
+/* Default styling for all edges */
+.react-flow__edge-path {
+  stroke-width: 5px !important;
+  stroke-opacity: 0.9 !important;
+}
+
+/* Node content styling with text wrapping */
+.node-content {
+  min-width: 160px !important;
+  max-width: 220px !important;
+  width: auto !important;
+  overflow-wrap: break-word !important;
+  word-wrap: break-word !important;
+  word-break: break-word !important;
+  hyphens: auto !important;
+}
+
+.node-title {
+  text-overflow: ellipsis !important;
+  overflow-wrap: break-word !important;
+  display: -webkit-box !important;
+  -webkit-line-clamp: 3 !important;
+  -webkit-box-orient: vertical !important;
+  line-height: 1.3 !important;
+}
+
+/* Custom research node styling - for horizontal layout */
+.react-flow__node-researchNode {
+  background: white !important;
+  border: 2px solid #3b82f6 !important;
+  border-radius: 8px !important;
+  padding: 8px !important;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3) !important;
+  z-index: 20 !important;
+  transition: all 0.2s ease-in-out;
+  text-align: center !important;
+  width: auto !important;
+}
+
+.react-flow__node-researchNode:hover {
+  transform: translateY(-3px);
+  filter: drop-shadow(0 10px 20px rgba(0, 0, 0, 0.35));
+  border-color: #2563eb !important;
+  z-index: 30 !important;
+}
+
+/* Override default edge styling for better visibility */
+.react-flow__edge {
+  z-index: 5 !important;
+}
+
+/* Enhance edge markers for better visibility */
+.react-flow__edge-path {
+  stroke-opacity: 0.9;
+}
+
+.react-flow__edge-path:hover {
+  stroke-opacity: 1;
+}
+
+/* Make the arrows larger and more visible */
+.react-flow__edge-arrowclosed {
+  fill-opacity: 0.9;
+  transform: scale(1.8);
+}
+
+/* Custom styling for edge status colors */
+.research-edge-active .react-flow__edge-path {
+  stroke: #4F46E5 !important;
+  stroke-width: 5px !important;
+  filter: drop-shadow(0 0 6px rgba(79, 70, 229, 0.6));
+}
+
+.research-edge-completed .react-flow__edge-path {
+  stroke: #4ADE80 !important;
+  stroke-width: 5px !important;
+  filter: drop-shadow(0 0 6px rgba(74, 222, 128, 0.6));
+}
+
+.research-edge-error .react-flow__edge-path {
+  stroke: #EF4444 !important;
+  stroke-width: 5px !important;
+  filter: drop-shadow(0 0 6px rgba(239, 68, 68, 0.6));
+}
+
+/* Edge tooltip styles */
+.edge-tooltip {
+  position: absolute;
+  background: white;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  padding: 8px;
+  font-size: 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  z-index: 1000;
+  pointer-events: none;
+  max-width: 250px;
+}
+
+.dark .edge-tooltip {
+  background: #222;
+  border-color: #444;
+  color: white;
+}
+
+/* Dark mode edge adjustments */
+.dark .react-flow__edge-path {
+  filter: brightness(1.2);
+}
+
+.dark .dag-edge:hover {
+  filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.4));
+} 

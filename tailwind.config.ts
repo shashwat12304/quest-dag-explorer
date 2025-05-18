@@ -1,4 +1,3 @@
-
 import type { Config } from "tailwindcss";
 
 export default {
@@ -101,12 +100,59 @@ export default {
                 'pulse-light': {
                     '0%, 100%': { opacity: '1' },
                     '50%': { opacity: '0.7' },
+                },
+                'fade-in-scale': {
+                    '0%': { 
+                        opacity: '0',
+                        transform: 'scale(0.9)'
+                    },
+                    '100%': { 
+                        opacity: '1',
+                        transform: 'scale(1)'
+                    }
+                },
+                'slide-up': {
+                    '0%': { 
+                        opacity: '0',
+                        transform: 'translateY(20px)'
+                    },
+                    '100%': { 
+                        opacity: '1',
+                        transform: 'translateY(0)'
+                    }
+                },
+                'reveal-dag': {
+                    '0%': {
+                        opacity: '0',
+                        filter: 'blur(8px)',
+                        transform: 'scale(0.95) translateY(10px)'
+                    },
+                    '60%': {
+                        filter: 'blur(4px)',
+                    },
+                    '100%': {
+                        opacity: '1',
+                        filter: 'blur(0)',
+                        transform: 'scale(1) translateY(0)'
+                    }
+                },
+                'draw-lines': {
+                    '0%': {
+                        'stroke-dashoffset': '1000'
+                    },
+                    '100%': {
+                        'stroke-dashoffset': '0'
+                    }
                 }
 			},
 			animation: {
 				'accordion-down': 'accordion-down 0.2s ease-out',
 				'accordion-up': 'accordion-up 0.2s ease-out',
                 'pulse-light': 'pulse-light 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                'fade-in-scale': 'fade-in-scale 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards',
+                'slide-up': 'slide-up 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards',
+                'reveal-dag': 'reveal-dag 1.2s cubic-bezier(0.22, 1, 0.36, 1) forwards',
+                'draw-lines': 'draw-lines 1.8s ease-out forwards'
 			}
 		}
 	},
