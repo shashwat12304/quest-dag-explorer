@@ -111,12 +111,12 @@ const QueryInput = ({
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Enter your research query..."
               disabled={isResearchRunning && !isPaused}
-              className="flex-1 focus-visible:ring-research-primary"
+              className="flex-1 focus-visible:ring-research-primary h-12 text-base md:text-lg"
             />
             <Button 
               type="submit" 
               disabled={isResearchRunning && !isPaused}
-              className="bg-gradient-to-r from-research-primary to-research-accent hover:opacity-90 transition-opacity text-white"
+              className="bg-gradient-to-r from-research-primary to-research-accent hover:opacity-90 transition-opacity text-white h-12 px-6"
             >
               Research
             </Button>

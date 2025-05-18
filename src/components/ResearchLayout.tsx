@@ -1,7 +1,7 @@
 
 import { useState, useEffect } from 'react';
 import { ResearchHistory, ResearchPlan, ResearchNode } from '@/types/dag';
-import { SidebarProvider, Sidebar, SidebarContent } from '@/components/ui/sidebar';
+import { SidebarProvider, Sidebar, SidebarContent, useSidebar } from '@/components/ui/sidebar';
 import ResearchHistoryComponent from '@/components/ResearchHistory';
 import DAGViewer from '@/components/DAGViewer';
 import QueryInput from '@/components/QueryInput';
@@ -9,7 +9,7 @@ import ResearchDetails from '@/components/ResearchDetails';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
-import { Moon, Sun } from 'lucide-react';
+import { Moon, Sun, PanelLeftClose, PanelLeft } from 'lucide-react';
 import { ThemeToggle } from '@/components/ThemeToggle';
 
 // Mock data generator function for demo purposes
@@ -132,7 +132,7 @@ const ResearchLayout = () => {
   return (
     <SidebarProvider>
       <div className="min-h-screen flex w-full bg-background text-foreground transition-colors duration-300">
-        <Sidebar defaultCollapsed={sidebarCollapsed} collapsible="icon">
+        <Sidebar collapsible="icon">
           <SidebarContent className="w-80">
             <ResearchHistoryComponent 
               history={researchHistory}
@@ -144,7 +144,17 @@ const ResearchLayout = () => {
         
         <div className="flex-1 flex flex-col h-screen overflow-hidden">
           <div className="p-4 border-b flex justify-between items-center bg-card/50 backdrop-blur-sm shadow-sm">
-            <h1 className="text-xl font-semibold">Deep Research Assistant</h1>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={toggleSidebar}
+                className="md:hidden"
+              >
+                {sidebarCollapsed ? <PanelLeft className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+              </Button>
+              <h1 className="text-xl font-semibold">Deep Research Assistant</h1>
+            </div>
             <div className="flex items-center gap-2">
               <ThemeToggle />
             </div>
