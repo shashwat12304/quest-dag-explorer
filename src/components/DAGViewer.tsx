@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useMemo, memo } from 'react';
 import { 
   ReactFlow,
   MiniMap,
@@ -13,15 +13,17 @@ import {
   MarkerType,
   NodeProps,
   Handle,
-  Position
+  Position,
+  ControlButton
 } from '@xyflow/react';
 import { ResearchNode, ResearchEdge } from '@/types/dag';
+import { ZoomIn, ZoomOut, Maximize } from 'lucide-react';
 
 import '@xyflow/react/dist/style.css';
 import './dagviewer-overrides.css';
 
 // Simple node component styled to match the image
-function ResearchNodeComponent({ data, isConnectable }: NodeProps) {
+const ResearchNodeComponent = memo(({ data, isConnectable }: NodeProps) => {
   // Get label from data with fallbacks
   const label = typeof data?.label === 'string' ? data.label : 'Research Task';
   const fullTitle = typeof data?.fullTitle === 'string' ? data.fullTitle : label;
@@ -50,7 +52,9 @@ function ResearchNodeComponent({ data, isConnectable }: NodeProps) {
       />
     </div>
   );
-}
+});
+
+ResearchNodeComponent.displayName = 'ResearchNodeComponent';
 
 // Define the node types
 const nodeTypes = {
@@ -65,8 +69,64 @@ interface DAGViewerProps {
 }
 
 const DAGViewer = ({ nodes, edges, onNodeClick, isEditable = false }: DAGViewerProps) => {
-  // Convert our research nodes to ReactFlow nodes
-  const initialNodes: Node[] = nodes.map((node) => {
+  // Function to determine edge color based on connected node statuses - memoized for performance
+  const getEdgeColor = useCallback((edge: ResearchEdge, nodes: ResearchNode[]): string => {
+    const sourceNode = nodes.find(n => n.id === edge.source);
+    const targetNode = nodes.find(n => n.id === edge.target);
+    
+    if (sourceNode?.status === 'active' || targetNode?.status === 'active') {
+      return '#4F46E5'; // Active edge - vibrant purple
+    } else if (sourceNode?.status === 'completed' && targetNode?.status === 'completed') {
+      return '#4ADE80'; // Completed edge - green
+    } else if (sourceNode?.status === 'error' || targetNode?.status === 'error') {
+      return '#EF4444'; // Error edge - red
+    } else {
+      return '#3b82f6'; // Default edge - brighter blue for better visibility
+    }
+  }, []);
+  
+  // Function to determine edge status class based on connected nodes - memoized for performance
+  const getEdgeStatusClass = useCallback((edge: ResearchEdge, nodes: ResearchNode[]): string => {
+    const sourceNode = nodes.find(n => n.id === edge.source);
+    const targetNode = nodes.find(n => n.id === edge.target);
+    
+    if (sourceNode?.status === 'active' || targetNode?.status === 'active') {
+      return 'research-edge-active';
+    } else if (sourceNode?.status === 'completed' && targetNode?.status === 'completed') {
+      return 'research-edge-completed';
+    } else if (sourceNode?.status === 'error' || targetNode?.status === 'error') {
+      return 'research-edge-error';
+    } else {
+      return '';
+    }
+  }, []);
+
+  // Function to determine node class based on status - memoized for performance
+  const getNodeClass = useCallback((status: string): string => {
+    const baseClass = "p-3 border rounded-md shadow-sm transition-all duration-300";
+    
+    switch (status) {
+      case 'waiting':
+        return `${baseClass} research-node-waiting`;
+      case 'active':
+        return `${baseClass} research-node-active`;
+      case 'completed':
+        return `${baseClass} research-node-completed`;
+      case 'error':
+        return `${baseClass} research-node-error`;
+      default:
+        return baseClass;
+    }
+  }, []);
+
+  // Helper function to get a node's label by ID - memoized for performance
+  const getNodeLabel = useCallback((nodeId: string, nodes: ResearchNode[]): string => {
+    const node = nodes.find(n => n.id === nodeId);
+    return node?.label || 'Unknown Node';
+  }, []);
+  
+  // Create initial nodes - memoized to prevent recreating on every render
+  const initialNodes: Node[] = useMemo(() => nodes.map((node) => {
     // Get node title with truncation for display
     const nodeTitle = node.label || (node.data && node.data.title) || "Research Task";
     const truncatedLabel = nodeTitle.length > 30 ? nodeTitle.substring(0, 27) + '...' : nodeTitle;
@@ -89,10 +149,10 @@ const DAGViewer = ({ nodes, edges, onNodeClick, isEditable = false }: DAGViewerP
         boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
       }
     };
-  });
+  }), [nodes, getNodeClass]);
 
-  // Convert our research edges to ReactFlow edges
-  const initialEdges: Edge[] = edges.map((edge) => ({
+  // Create initial edges - memoized to prevent recreating on every render
+  const initialEdges: Edge[] = useMemo(() => edges.map((edge) => ({
     id: edge.id,
     source: edge.source,
     target: edge.target,
@@ -113,65 +173,17 @@ const DAGViewer = ({ nodes, edges, onNodeClick, isEditable = false }: DAGViewerP
     data: edge.data,
     // Add a title attribute for tooltip on hover
     ariaLabel: `Connection from ${getNodeLabel(edge.source, nodes)} to ${getNodeLabel(edge.target, nodes)}`,
-  }));
+  })), [edges, nodes, getEdgeColor, getEdgeStatusClass, getNodeLabel]);
 
   const [reactNodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [reactEdges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
 
-  // Function to determine edge color based on connected node statuses
-  function getEdgeColor(edge: ResearchEdge, nodes: ResearchNode[]): string {
-    const sourceNode = nodes.find(n => n.id === edge.source);
-    const targetNode = nodes.find(n => n.id === edge.target);
-    
-    if (sourceNode?.status === 'active' || targetNode?.status === 'active') {
-      return '#4F46E5'; // Active edge - vibrant purple
-    } else if (sourceNode?.status === 'completed' && targetNode?.status === 'completed') {
-      return '#4ADE80'; // Completed edge - green
-    } else if (sourceNode?.status === 'error' || targetNode?.status === 'error') {
-      return '#EF4444'; // Error edge - red
-    } else {
-      return '#3b82f6'; // Default edge - brighter blue for better visibility
-    }
-  }
-  
-  // Function to determine edge status class based on connected nodes
-  function getEdgeStatusClass(edge: ResearchEdge, nodes: ResearchNode[]): string {
-    const sourceNode = nodes.find(n => n.id === edge.source);
-    const targetNode = nodes.find(n => n.id === edge.target);
-    
-    if (sourceNode?.status === 'active' || targetNode?.status === 'active') {
-      return 'research-edge-active';
-    } else if (sourceNode?.status === 'completed' && targetNode?.status === 'completed') {
-      return 'research-edge-completed';
-    } else if (sourceNode?.status === 'error' || targetNode?.status === 'error') {
-      return 'research-edge-error';
-    } else {
-      return '';
-    }
-  }
-
-  // Function to determine node class based on status
-  function getNodeClass(status: string): string {
-    const baseClass = "p-3 border rounded-md shadow-sm transition-all duration-300";
-    
-    switch (status) {
-      case 'waiting':
-        return `${baseClass} research-node-waiting`;
-      case 'active':
-        return `${baseClass} research-node-active`;
-      case 'completed':
-        return `${baseClass} research-node-completed`;
-      case 'error':
-        return `${baseClass} research-node-error`;
-      default:
-        return baseClass;
-    }
-  }
-
   // Auto-layout nodes in useEffect
   useEffect(() => {
-    // Simple yet effective DAG layout algorithm
+    // Performance optimization: only run this effect when nodes or edges change
+    console.time('DAG layout calculation');
     
+    // Simple yet effective DAG layout algorithm
     // Step 1: Create a map to store node data
     const nodeMap = new Map();
     nodes.forEach(node => {
@@ -297,15 +309,18 @@ const DAGViewer = ({ nodes, edges, onNodeClick, isEditable = false }: DAGViewerP
         data: { 
           label: node.label || 
                  (node.data && node.data.title) || 
-                 "Research Task"
+                 "Research Task",
+          fullTitle: node.label || (node.data && node.data.title) || "Research Task"
         }
       };
     }).filter(Boolean) as Node[];
     
+    console.timeEnd('DAG layout calculation');
+    
     // Update the nodes state
     setNodes(updatedNodes);
     
-  }, [nodes, edges, setNodes]);
+  }, [nodes, edges, setNodes, getNodeClass]); // Added getNodeClass to dependencies
 
   const onConnect = useCallback(
     (params: Connection) => setEdges((eds) => addEdge(params, eds)),
@@ -324,14 +339,8 @@ const DAGViewer = ({ nodes, edges, onNodeClick, isEditable = false }: DAGViewerP
     [nodes, onNodeClick]
   );
 
-  // Helper function to get a node's label by ID
-  function getNodeLabel(nodeId: string, nodes: ResearchNode[]): string {
-    const node = nodes.find(n => n.id === nodeId);
-    return node?.label || 'Unknown Node';
-  }
-
   return (
-    <div className="w-full h-full bg-gradient-to-br from-background to-card/80 p-8 rounded-lg shadow-inner">
+    <div className="w-full h-full bg-gradient-to-br from-background to-card/80 p-8 rounded-lg shadow-inner dag-container">
       <ReactFlow
         nodes={reactNodes}
         edges={reactEdges}
@@ -344,7 +353,7 @@ const DAGViewer = ({ nodes, edges, onNodeClick, isEditable = false }: DAGViewerP
         fitViewOptions={{
           padding: 0.5,
           includeHiddenNodes: true,
-          maxZoom: 1.5,
+          maxZoom: 2.0, // Increased max zoom for better detail viewing
         }}
         defaultEdgeOptions={{
           style: { strokeWidth: 4 },
@@ -355,8 +364,62 @@ const DAGViewer = ({ nodes, edges, onNodeClick, isEditable = false }: DAGViewerP
         nodesConnectable={isEditable}
         elementsSelectable={isEditable}
         className="rounded-lg border border-border shadow-lg bg-white/80 dark:bg-gray-900/80"
+        minZoom={0.1} // Allow further zooming out for large graphs
+        maxZoom={3} // Allow more zoom in for detailed view
+        proOptions={{ hideAttribution: true }} // Hide the ReactFlow attribution
       >
-        <Controls className="bg-card border shadow-md rounded-md" />
+        <Controls className="bg-card border shadow-md rounded-md">
+          <ControlButton 
+            onClick={() => {
+              // Custom zoom in button with better zoom factor
+              const zoomIn = () => {
+                const flowInstance = document.querySelector('.react-flow__renderer');
+                const zoomEvent = new WheelEvent('wheel', { 
+                  bubbles: true, 
+                  cancelable: true,
+                  deltaY: -100 
+                });
+                flowInstance?.dispatchEvent(zoomEvent);
+              };
+              zoomIn();
+            }}
+            title="Zoom in"
+          >
+            <ZoomIn className="h-4 w-4" />
+          </ControlButton>
+          <ControlButton 
+            onClick={() => {
+              // Custom zoom out button with better zoom factor
+              const zoomOut = () => {
+                const flowInstance = document.querySelector('.react-flow__renderer');
+                const zoomEvent = new WheelEvent('wheel', { 
+                  bubbles: true, 
+                  cancelable: true,
+                  deltaY: 100 
+                });
+                flowInstance?.dispatchEvent(zoomEvent);
+              };
+              zoomOut();
+            }}
+            title="Zoom out"
+          >
+            <ZoomOut className="h-4 w-4" />
+          </ControlButton>
+          <ControlButton 
+            onClick={() => {
+              // Custom fit view button
+              const flowInstance = document.querySelector('div[data-reactflow-id]');
+              // @ts-ignore - fitView exists on the instance and will work
+              if (flowInstance?.__reactFlowInstance) {
+                // @ts-ignore
+                flowInstance.__reactFlowInstance.fitView({ padding: 0.8 });
+              }
+            }}
+            title="Fit view"
+          >
+            <Maximize className="h-4 w-4" />
+          </ControlButton>
+        </Controls>
         <MiniMap 
           className="bg-card border shadow-md rounded-md !bottom-14 !right-2"
           nodeBorderRadius={8}

@@ -142,11 +142,22 @@ const ResearchLayout = () => {
     setIsProcessing(true);
     setStatusMessage("Starting research process...");
     
+    // Set a timeout to check if the process is taking too long
+    const timeoutId = setTimeout(() => {
+      if (isProcessing && !currentResearch) {
+        console.log("Research process taking longer than expected, checking status directly");
+        // Try to check status directly
+        toast.info("Research is still in progress. Please wait...");
+      }
+    }, 15000); // 15 seconds timeout
+    
     try {
       // Send the query to the API to start the research process
+      console.log("Submitting research query:", query);
       const response = await axios.post(API_ENDPOINTS.research, { query });
+      console.log("Research API response:", response.data);
       
-      if (response.data && response.data.success) {
+      if (response.data) {
         // Store the query for WebSocket updates
         setQuery(query);
         
@@ -176,6 +187,7 @@ const ResearchLayout = () => {
       console.error('Error submitting query:', error);
       toast.error('Failed to start research. Please try again.');
       setIsProcessing(false);
+      clearTimeout(timeoutId);
     }
   };
   
@@ -289,6 +301,43 @@ const ResearchLayout = () => {
   };
   
   // WebSocket setup with error handling and reconnection
+  // Effect to fetch DAG directly from API as a fallback if WebSocket fails
+  useEffect(() => {
+    if (isProcessing && query && !currentResearch) {
+      // Poll the DAG endpoint after a delay (giving WebSocket a chance)
+      const fetchDAGTimeout = setTimeout(async () => {
+        console.log("Checking for DAG directly via API as a fallback...");
+        try {
+          const response = await axios.get(API_ENDPOINTS.dag);
+          if (response.data && response.data.nodes) {
+            console.log("Retrieved DAG via API:", response.data);
+            toast.success("DAG retrieved via API");
+            
+            // Convert API DAG to frontend format
+            const formattedDag = convertApiDagToFrontendFormat(response.data);
+            // Update the query with the user's original research query
+            formattedDag.query = query;
+            
+            // Update research history and current research
+            setResearchHistory(prev => [formattedDag, ...prev]);
+            setStatusMessage("DAG retrieved. Preparing visualization...");
+            
+            // Show the DAG after a short delay
+            setTimeout(() => {
+              setCurrentResearch(formattedDag);
+              setIsProcessing(false);
+            }, 1000);
+          }
+        } catch (error) {
+          console.log("No DAG available yet via API");
+          // Silent error - just means the DAG isn't ready yet
+        }
+      }, 10000); // Wait 10 seconds before trying to fetch directly
+      
+      return () => clearTimeout(fetchDAGTimeout);
+    }
+  }, [isProcessing, query, currentResearch]);
+
   useEffect(() => {
     const setupWebSocket = () => {
       // Close previous connection if exists
@@ -312,10 +361,13 @@ const ResearchLayout = () => {
         }
       };
       
+      // Add debugging for socket events
+      console.log("Setting up WebSocket listeners");
+      
       websocket.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          console.log('WebSocket message:', data);
+          console.log('WebSocket message received:', data);
           
           // Update status message regardless of status type
           if (data.message) {
@@ -324,29 +376,55 @@ const ResearchLayout = () => {
           
           switch (data.status) {
             case 'loading':
+              console.log('Processing loading status');
               toast.info(data.message || 'Loading agent registry...', { id: 'research-status' });
+              setStatusMessage(data.message || 'Loading agent registry...');
               break;
               
             case 'researching':
+              console.log('Processing researching status');
               toast.info(data.message || 'Performing web research...', { id: 'research-status' });
+              setStatusMessage(data.message || 'Performing web research...');
               break;
               
             case 'dag_generated':
+              console.log('DAG generated event received!', data.data?.dag ? 'With DAG data' : 'Missing DAG data');
               if (data.data?.dag) {
                 toast.success('DAG generated!', { id: 'research-status' });
+                console.log('Converting DAG data to frontend format');
                 
-                // Convert API DAG to frontend format
-                const formattedDag = convertApiDagToFrontendFormat(data.data.dag);
-                // Update the query
-                formattedDag.query = query;
-                
-                // Enable animation for this new DAG
-                setShowDagAnimation(true);
-                dagAnimationRef.current.set(formattedDag.id, true);
-                
-                // Update the research history and current research
-                setResearchHistory(prev => [formattedDag, ...prev]);
-                setCurrentResearch(formattedDag);
+                try {
+                  // Convert API DAG to frontend format
+                  const formattedDag = convertApiDagToFrontendFormat(data.data.dag);
+                  // Update the query with the user's original research query
+                  formattedDag.query = query;
+                  console.log('Formatted DAG:', formattedDag);
+                  
+                  // Enable animation for this new DAG
+                  setShowDagAnimation(true);
+                  dagAnimationRef.current.set(formattedDag.id, true);
+                  
+                  // Update the research history but keep the loading state active
+                  setResearchHistory(prev => [formattedDag, ...prev]);
+                  
+                  // Status message update for loading screen
+                  setStatusMessage("DAG generated. Preparing visualization...");
+                  
+                  console.log('Setting timeout to display DAG in 1.5 seconds');
+                  // Add a small delay before showing the DAG to ensure the processing screen is visible
+                  setTimeout(() => {
+                    console.log('Displaying DAG now');
+                    setCurrentResearch(formattedDag);
+                    setIsProcessing(false);
+                  }, 1500); // 1.5 second delay for better UX
+                } catch (error) {
+                  console.error('Error processing DAG data:', error);
+                  toast.error('Error processing DAG data');
+                  setIsProcessing(false);
+                }
+              } else {
+                console.error('DAG generation event received but missing DAG data');
+                toast.error('Error: DAG data missing');
                 setIsProcessing(false);
               }
               break;
@@ -418,6 +496,12 @@ const ResearchLayout = () => {
       websocket.onerror = (error) => {
         console.error('WebSocket error:', error);
         toast.error('Connection to research server failed. Reconnecting...');
+        setStatusMessage("Connection to research server failed. Reconnecting...");
+        
+        // If we were processing, reset the state to allow new research
+        if (isProcessing) {
+          setIsProcessing(false);
+        }
         
         // Try to reconnect after a short delay
         setTimeout(setupWebSocket, 3000);
@@ -429,6 +513,13 @@ const ResearchLayout = () => {
         // If this wasn't a normal closure, try to reconnect
         if (event.code !== 1000) {
           toast.error('Connection to research server lost. Reconnecting...');
+          setStatusMessage("Connection lost. Attempting to reconnect...");
+          
+          // If we were processing, reset the state to allow new research
+          if (isProcessing) {
+            setIsProcessing(false);
+          }
+          
           setTimeout(setupWebSocket, 3000);
         }
       };
@@ -559,7 +650,6 @@ const ResearchLayout = () => {
                     edges={currentResearch.edges}
                     onNodeClick={handleNodeClick}
                     isEditable={isEditable && !readOnly}
-                    animate={showDagAnimation}
                   />
                 </div>
                 <div className="w-80 border-l overflow-y-auto bg-card/30 backdrop-blur-sm">
@@ -604,17 +694,57 @@ const ResearchLayout = () => {
                 </p>
                 
                 {isProcessing && (
-                  <div className="mb-4 p-4 bg-research-primary/10 border border-research-primary/30 rounded-md">
-                    <div className="text-sm text-research-primary font-medium flex items-center gap-2 justify-center">
+                  <motion.div 
+                    className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-md"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                  >
+                    <motion.div 
+                      className="flex flex-col items-center gap-6 p-10 bg-card rounded-xl shadow-xl border border-research-primary/30"
+                      initial={{ scale: 0.9, y: 20 }}
+                      animate={{ scale: 1, y: 0 }}
+                      transition={{ delay: 0.1, duration: 0.5, type: "spring" }}
+                    >
                       <motion.div
-                        animate={{ rotate: 360 }}
-                        transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                        animate={{
+                          scale: [1, 1.1, 1],
+                          opacity: [0.7, 1, 0.7],
+                        }}
+                        transition={{
+                          duration: 2.5,
+                          repeat: Infinity,
+                          ease: "easeInOut"
+                        }}
+                        className="relative"
                       >
-                        <Loader2 className="h-4 w-4" />
+                        <div className="absolute inset-0 bg-research-primary/20 rounded-full blur-xl"></div>
+                        <motion.div
+                          animate={{ rotate: 360 }}
+                          transition={{
+                            duration: 3,
+                            repeat: Infinity,
+                            ease: "linear"
+                          }}
+                        >
+                          <Loader2 className="h-16 w-16 text-research-primary" />
+                        </motion.div>
                       </motion.div>
-                      {statusMessage || "Generating research DAG..."}
-                    </div>
-                  </div>
+                      <motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.3 }}
+                        className="text-center"
+                      >
+                        <h3 className="text-xl font-bold mb-2 bg-gradient-to-r from-research-primary to-research-accent bg-clip-text text-transparent">
+                          Researching
+                        </h3>
+                        <p className="text-muted-foreground">
+                          {statusMessage || "Generating research DAG..."}
+                        </p>
+                      </motion.div>
+                    </motion.div>
+                  </motion.div>
                 )}
                 
                 <div className="flex items-center space-x-2 mt-4">
