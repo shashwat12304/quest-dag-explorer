@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { ResearchHistory, ResearchPlan, ResearchNode } from '@/types/dag';
 import { SidebarProvider, Sidebar, SidebarContent, useSidebar } from '@/components/ui/sidebar';
 import ResearchHistoryComponent from '@/components/ResearchHistory';
@@ -14,9 +14,11 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import axios from 'axios';
 import { motion } from 'framer-motion';
+import useWebSocket, { WebSocketMessage, DagStructure, NodeStatusUpdate, ResearchCompleted } from '@/hooks/useWebSocket';
 
 // API URLs
 const API_BASE_URL = 'http://localhost:8000';
+const WS_URL = 'ws://localhost:8000/ws';
 const API_ENDPOINTS = {
   research: `${API_BASE_URL}/research`,
   status: (id: string) => `${API_BASE_URL}/status/${id}`,
@@ -24,11 +26,8 @@ const API_ENDPOINTS = {
   report: `${API_BASE_URL}/report`,
 };
 
-// WebSocket connection for real-time updates
-let websocket: WebSocket | null = null;
-
 // Convert API DAG data to our frontend format
-const convertApiDagToFrontendFormat = (dagData: any): ResearchPlan => {
+const convertApiDagToFrontendFormat = (dagData: any, query: string): ResearchPlan => {
   const id = `research-${Date.now()}`;
   
   // Create nodes - simplified for clarity
@@ -40,7 +39,9 @@ const convertApiDagToFrontendFormat = (dagData: any): ResearchPlan => {
     // Simplified data structure
     data: {
       title: node.title,
-      nodeId: node.node_id
+      nodeId: node.node_id,
+      description: node.description,
+      assigned_agent: node.assigned_agent
     }
   }));
   
@@ -65,7 +66,7 @@ const convertApiDagToFrontendFormat = (dagData: any): ResearchPlan => {
   
   return {
     id,
-    query: "Research Query", // Will be updated with actual query
+    query,
     timestamp: new Date().toISOString(),
     status: 'running',
     nodes,
@@ -73,46 +74,26 @@ const convertApiDagToFrontendFormat = (dagData: any): ResearchPlan => {
   };
 };
 
-// Mock data generator function for demo purposes
-const generateMockResearch = (query: string): ResearchPlan => {
-  const id = `research-${Date.now()}`;
-  const nodeCount = Math.floor(Math.random() * 5) + 3; // 3-7 nodes
-  
-  const nodes: ResearchNode[] = [];
-  
-  // Create nodes
-  for (let i = 0; i < nodeCount; i++) {
-    const nodeId = `${id}-node-${i}`;
-    let status: ResearchNode['status'] = 'waiting';
-    
-    if (i === 0) status = 'completed';
-    else if (i === 1) status = 'active';
-    
-    nodes.push({
-      id: nodeId,
-      label: `Research Task ${i + 1}`,
-      status,
-      description: `This is a research task to investigate part of the query: "${query}".`,
-    });
-  }
-  
-  // Create edges (simple linear path for demo)
-  const edges = [];
-  for (let i = 0; i < nodeCount - 1; i++) {
-    edges.push({
-      id: `${id}-edge-${i}`,
-      source: nodes[i].id,
-      target: nodes[i + 1].id,
-    });
-  }
+// Find a node in the research plan by node_id
+const findNodeByApiId = (research: ResearchPlan, nodeId: number): ResearchNode | undefined => {
+  return research.nodes.find(node => node.data?.nodeId === nodeId);
+};
+
+const updateNodeStatus = (research: ResearchPlan, nodeId: number, status: string, outputSummary?: string): ResearchPlan => {
+  const updatedNodes = research.nodes.map(node => {
+    if (node.data?.nodeId === nodeId) {
+      return {
+        ...node,
+        status: status as any, // Fix type issue
+        output: outputSummary,
+      };
+    }
+    return node;
+  });
   
   return {
-    id,
-    query,
-    timestamp: new Date().toISOString(),
-    status: 'running',
-    nodes,
-    edges,
+    ...research,
+    nodes: updatedNodes,
   };
 };
 
@@ -132,24 +113,304 @@ const ResearchLayout = () => {
   const [taskId, setTaskId] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState('');
   const [showDagAnimation, setShowDagAnimation] = useState(true);
+  const [report, setReport] = useState<string | null>(null);
+  const [reportTitle, setReportTitle] = useState<string | null>(null);
   
   // Use this to track if we need to show the animation 
   // (only true on first load of a new DAG)
   const dagAnimationRef = useRef(new Map<string, boolean>());
   
+  // Add WebSocket connection status tracking
+  const [wsConnected, setWsConnected] = useState(false);
+  
+  // Add status polling as fallback if WebSocket fails
+  const [isPolling, setIsPolling] = useState(false);
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  
+  const stopStatusPolling = useCallback(() => {
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+      pollingIntervalRef.current = null;
+    }
+    setIsPolling(false);
+  }, []);
+  
+  // Improve node status update handling
+  const handleWebSocketMessage = useCallback((message: WebSocketMessage) => {
+    console.log("WebSocket message received:", message);
+    
+    try {
+      switch (message.type) {
+        case 'status_update':
+          setStatusMessage(message.message);
+          
+          // Update status based on message
+          if (message.status === 'researching' || message.status === 'loading') {
+            setIsProcessing(true);
+          } else if (message.status === 'error') {
+            setIsProcessing(false);
+            toast.error(message.message);
+          } else if (message.status === 'complete') {
+            setIsProcessing(false);
+            toast.success('Research completed successfully');
+            // Set report content if available
+            if (message.data?.report) {
+              setReport(message.data.report);
+            }
+            // Stop polling if it's active
+            stopStatusPolling();
+          } else if (message.status === 'dag_generated') {
+            // DAG was generated
+            setIsProcessing(false);
+            toast.success('Research DAG generated');
+          }
+          break;
+          
+        case 'dag_structure':
+          // New DAG structure received
+          const dagData = message as DagStructure;
+          console.log("DAG structure received:", dagData);
+          
+          // Convert to frontend format
+          const newResearch = convertApiDagToFrontendFormat({
+            nodes: dagData.nodes,
+            adjacency_matrix: dagData.edges.reduce((matrix: number[][], edge) => {
+              // Initialize matrix if needed
+              if (!matrix.length) {
+                const maxNodeId = Math.max(...dagData.nodes.map(n => n.node_id));
+                matrix = Array(maxNodeId).fill(0).map(() => Array(maxNodeId).fill(0));
+              }
+              
+              // Fill in edge
+              matrix[edge.from - 1][edge.to - 1] = 1;
+              return matrix;
+            }, []),
+            dependency_reasons: dagData.edges.map(edge => ({
+              from_node: edge.from,
+              to_node: edge.to,
+              reason: 'Dependency relationship'
+            }))
+          }, query);
+          
+          // Mark for animation
+          dagAnimationRef.current.set(newResearch.id, true);
+          
+          // Add to history and set as current
+          setResearchHistory(prev => [...prev, newResearch]);
+          setCurrentResearch(newResearch);
+          setSelectedNode(undefined);
+          setShowDagAnimation(true);
+          break;
+          
+        case 'node_status_update':
+          // Node status update received
+          const nodeUpdate = message as NodeStatusUpdate;
+          console.log("Node status update received:", nodeUpdate);
+          
+          if (currentResearch) {
+            // Map API status to frontend status
+            let frontendStatus: 'waiting' | 'active' | 'completed' | 'error' = 'waiting';
+            
+            // Improved status mapping with better logging
+            console.log(`Mapping backend status '${nodeUpdate.status}' for node ${nodeUpdate.node_id}`);
+            
+            switch (nodeUpdate.status) {
+              case 'running':
+                frontendStatus = 'active';
+                console.log(`Node ${nodeUpdate.node_id} status mapped to 'active'`);
+                break;
+              case 'completed':
+                frontendStatus = 'completed';
+                console.log(`Node ${nodeUpdate.node_id} status mapped to 'completed'`);
+                break;
+              case 'error':
+                frontendStatus = 'error';
+                console.log(`Node ${nodeUpdate.node_id} status mapped to 'error'`);
+                break;
+              default:
+                console.warn(`Unknown node status: ${nodeUpdate.status}`);
+                frontendStatus = 'waiting';
+            }
+            
+            // Find the node to update using the API node ID
+            const nodeToUpdate = findNodeByApiId(currentResearch, nodeUpdate.node_id);
+            
+            if (nodeToUpdate) {
+              console.log(`Found node to update: ${nodeToUpdate.id}, current status: ${nodeToUpdate.status}, new status: ${frontendStatus}`);
+            } else {
+              console.warn(`Could not find node with API ID ${nodeUpdate.node_id} in the current research plan`);
+            }
+            
+            // Update the research plan with the new node status
+            const updatedResearch = updateNodeStatus(
+              currentResearch, 
+              nodeUpdate.node_id, 
+              frontendStatus, 
+              nodeUpdate.output_summary
+            );
+            
+            // Update state
+            setCurrentResearch(updatedResearch);
+            setResearchHistory(prev => 
+              prev.map(r => r.id === updatedResearch.id ? updatedResearch : r)
+            );
+            
+            // If the selected node was updated, refresh the selection
+            if (selectedNode && selectedNode.data?.nodeId === nodeUpdate.node_id) {
+              const updatedNode = findNodeByApiId(updatedResearch, nodeUpdate.node_id);
+              setSelectedNode(updatedNode);
+            }
+            
+            // Show toast for node status change
+            if (frontendStatus === 'active') {
+              toast.info(`Node ${nodeUpdate.node_id} (${nodeUpdate.title}) started execution`);
+            } else if (frontendStatus === 'completed') {
+              toast.success(`Node ${nodeUpdate.node_id} (${nodeUpdate.title}) completed`);
+            } else if (frontendStatus === 'error') {
+              toast.error(`Node ${nodeUpdate.node_id} (${nodeUpdate.title}) failed: ${nodeUpdate.output_summary || 'Unknown error'}`);
+            }
+          } else {
+            console.warn("Received node status update but no current research plan is loaded.");
+          }
+          break;
+          
+        case 'research_completed':
+          // Research completed
+          const researchComplete = message as ResearchCompleted;
+          console.log("Research completed:", researchComplete);
+          
+          setIsProcessing(false);
+          setReportTitle(researchComplete.title);
+          stopStatusPolling(); // Stop any active polling
+          
+          if (currentResearch) {
+            // Mark research as completed
+            const completedResearch = {
+              ...currentResearch,
+              status: 'completed' as const,
+              title: researchComplete.title
+            };
+            
+            setCurrentResearch(completedResearch);
+            setResearchHistory(prev => 
+              prev.map(r => r.id === completedResearch.id ? completedResearch : r)
+            );
+            
+            // Show completion toast
+            toast.success(`Research completed: ${researchComplete.title}`, {
+              description: 'The full report is now available'
+            });
+          }
+          break;
+          
+        default:
+          console.log(`Unhandled WebSocket message type: ${message.type}`);
+      }
+    } catch (error) {
+      console.error("Error processing WebSocket message:", error);
+    }
+  }, [currentResearch, query, selectedNode, stopStatusPolling]);
+  
+  // Update the WebSocket hook with onStatusChange
+  const { status: wsStatus, sendMessage, isConnected } = useWebSocket({
+    url: WS_URL,
+    autoConnect: true,
+    onMessage: handleWebSocketMessage,
+    onStatusChange: (status) => {
+      setWsConnected(status === 'connected');
+      if (status === 'connected') {
+        toast.success("WebSocket connected. Real-time updates are active.");
+      } else if (status === 'disconnected' || status === 'error') {
+        // Only show a toast if we had a connection before
+        if (wsConnected) {
+          toast.error("WebSocket disconnected. Reconnecting...");
+        }
+      }
+    }
+  });
+  
+  const startStatusPolling = useCallback((id: string) => {
+    // Cancel any existing polling
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+    }
+    
+    setIsPolling(true);
+    console.log(`Starting status polling for task ${id}`);
+    
+    const poll = async () => {
+      if (!isConnected) {
+        try {
+          const response = await axios.get(API_ENDPOINTS.status(id));
+          console.log("Status polling response:", response.data);
+          
+          // Update status based on response
+          if (response.data.status === 'completed') {
+            // Research is complete, fetch final results
+            try {
+              const reportResponse = await axios.get(API_ENDPOINTS.report);
+              if (reportResponse.data && reportResponse.data.report) {
+                setReport(reportResponse.data.report);
+                setIsProcessing(false);
+                toast.success("Research completed");
+                stopStatusPolling();
+              }
+            } catch (error) {
+              console.error("Error fetching report:", error);
+            }
+          } else if (response.data.status === 'error') {
+            setIsProcessing(false);
+            toast.error(response.data.message || "Research process failed");
+            stopStatusPolling();
+          }
+        } catch (error) {
+          console.error("Error polling status:", error);
+        }
+      } else {
+        // WebSocket is connected, we can stop polling
+        console.log("WebSocket connected, stopping polling");
+        stopStatusPolling();
+      }
+    };
+    
+    // Poll immediately
+    poll();
+    
+    // Set up interval polling (every 5 seconds)
+    pollingIntervalRef.current = setInterval(poll, 5000);
+  }, [isConnected, stopStatusPolling]);
+  
+  // Stop polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+      }
+    };
+  }, []);
+  
   // Handlers
   const handleSubmitQuery = async (query: string) => {
+    // Check if WebSocket is connected or connecting
+    if (!isConnected) {
+      console.log("WebSocket not connected, attempting to connect before research...");
+      // Show a toast to the user about the WebSocket connection
+      toast.info("Connecting to real-time updates service...");
+      
+      // Give a brief delay to let WebSocket connect
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // If still not connected, warn the user but continue
+      if (!isConnected) {
+        toast.warning("Real-time updates may be delayed. Will retry connection.");
+      }
+    }
+    
     setIsProcessing(true);
     setStatusMessage("Starting research process...");
-    
-    // Set a timeout to check if the process is taking too long
-    const timeoutId = setTimeout(() => {
-      if (isProcessing && !currentResearch) {
-        console.log("Research process taking longer than expected, checking status directly");
-        // Try to check status directly
-        toast.info("Research is still in progress. Please wait...");
-      }
-    }, 15000); // 15 seconds timeout
+    setQuery(query);
+    setReport(null);
+    setReportTitle(null);
     
     try {
       // Send the query to the API to start the research process
@@ -158,27 +419,16 @@ const ResearchLayout = () => {
       console.log("Research API response:", response.data);
       
       if (response.data) {
-        // Store the query for WebSocket updates
-        setQuery(query);
-        
-        // Let the WebSocket handle the DAG generation and updates
         toast.success("Research process started", { 
-          description: "WebSocket connection established. You'll see updates in real-time." 
+          description: "You'll see updates in real-time as the research progresses." 
         });
         
-        // Ensure WebSocket is connected
-        if (websocket && websocket.readyState !== WebSocket.OPEN) {
-          console.warn("WebSocket not open, reconnecting...");
-          // Reinitialize WebSocket
-          websocket = new WebSocket(`ws://localhost:8000/ws`);
-          websocket.onopen = () => {
-            console.log('WebSocket reconnected');
-            // Send a message to identify this client
-            websocket.send(JSON.stringify({
-              type: 'connect',
-              data: { query }
-            }));
-          };
+        // Store task ID if provided
+        if (response.data.data?.task_id) {
+          setTaskId(response.data.data.task_id);
+          
+          // Start polling for status in case WebSocket fails
+          startStatusPolling(response.data.data.task_id);
         }
       } else {
         throw new Error("Failed to start research process");
@@ -187,7 +437,6 @@ const ResearchLayout = () => {
       console.error('Error submitting query:', error);
       toast.error('Failed to start research. Please try again.');
       setIsProcessing(false);
-      clearTimeout(timeoutId);
     }
   };
   
@@ -299,242 +548,6 @@ const ResearchLayout = () => {
   const toggleSidebar = () => {
     setSidebarCollapsed(!sidebarCollapsed);
   };
-  
-  // WebSocket setup with error handling and reconnection
-  // Effect to fetch DAG directly from API as a fallback if WebSocket fails
-  useEffect(() => {
-    if (isProcessing && query && !currentResearch) {
-      // Poll the DAG endpoint after a delay (giving WebSocket a chance)
-      const fetchDAGTimeout = setTimeout(async () => {
-        console.log("Checking for DAG directly via API as a fallback...");
-        try {
-          const response = await axios.get(API_ENDPOINTS.dag);
-          if (response.data && response.data.nodes) {
-            console.log("Retrieved DAG via API:", response.data);
-            toast.success("DAG retrieved via API");
-            
-            // Convert API DAG to frontend format
-            const formattedDag = convertApiDagToFrontendFormat(response.data);
-            // Update the query with the user's original research query
-            formattedDag.query = query;
-            
-            // Update research history and current research
-            setResearchHistory(prev => [formattedDag, ...prev]);
-            setStatusMessage("DAG retrieved. Preparing visualization...");
-            
-            // Show the DAG after a short delay
-            setTimeout(() => {
-              setCurrentResearch(formattedDag);
-              setIsProcessing(false);
-            }, 1000);
-          }
-        } catch (error) {
-          console.log("No DAG available yet via API");
-          // Silent error - just means the DAG isn't ready yet
-        }
-      }, 10000); // Wait 10 seconds before trying to fetch directly
-      
-      return () => clearTimeout(fetchDAGTimeout);
-    }
-  }, [isProcessing, query, currentResearch]);
-
-  useEffect(() => {
-    const setupWebSocket = () => {
-      // Close previous connection if exists
-      if (websocket) {
-        websocket.close();
-      }
-
-      // Create new WebSocket connection
-      websocket = new WebSocket(`ws://localhost:8000/ws`);
-      
-      websocket.onopen = () => {
-        console.log('WebSocket connection established');
-        toast.success("Connected to research server");
-        
-        // Send a message to identify this client if there's an active query
-        if (query) {
-          websocket.send(JSON.stringify({
-            type: 'connect',
-            data: { query }
-          }));
-        }
-      };
-      
-      // Add debugging for socket events
-      console.log("Setting up WebSocket listeners");
-      
-      websocket.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          console.log('WebSocket message received:', data);
-          
-          // Update status message regardless of status type
-          if (data.message) {
-            setStatusMessage(data.message);
-          }
-          
-          switch (data.status) {
-            case 'loading':
-              console.log('Processing loading status');
-              toast.info(data.message || 'Loading agent registry...', { id: 'research-status' });
-              setStatusMessage(data.message || 'Loading agent registry...');
-              break;
-              
-            case 'researching':
-              console.log('Processing researching status');
-              toast.info(data.message || 'Performing web research...', { id: 'research-status' });
-              setStatusMessage(data.message || 'Performing web research...');
-              break;
-              
-            case 'dag_generated':
-              console.log('DAG generated event received!', data.data?.dag ? 'With DAG data' : 'Missing DAG data');
-              if (data.data?.dag) {
-                toast.success('DAG generated!', { id: 'research-status' });
-                console.log('Converting DAG data to frontend format');
-                
-                try {
-                  // Convert API DAG to frontend format
-                  const formattedDag = convertApiDagToFrontendFormat(data.data.dag);
-                  // Update the query with the user's original research query
-                  formattedDag.query = query;
-                  console.log('Formatted DAG:', formattedDag);
-                  
-                  // Enable animation for this new DAG
-                  setShowDagAnimation(true);
-                  dagAnimationRef.current.set(formattedDag.id, true);
-                  
-                  // Update the research history but keep the loading state active
-                  setResearchHistory(prev => [formattedDag, ...prev]);
-                  
-                  // Status message update for loading screen
-                  setStatusMessage("DAG generated. Preparing visualization...");
-                  
-                  console.log('Setting timeout to display DAG in 1.5 seconds');
-                  // Add a small delay before showing the DAG to ensure the processing screen is visible
-                  setTimeout(() => {
-                    console.log('Displaying DAG now');
-                    setCurrentResearch(formattedDag);
-                    setIsProcessing(false);
-                  }, 1500); // 1.5 second delay for better UX
-                } catch (error) {
-                  console.error('Error processing DAG data:', error);
-                  toast.error('Error processing DAG data');
-                  setIsProcessing(false);
-                }
-              } else {
-                console.error('DAG generation event received but missing DAG data');
-                toast.error('Error: DAG data missing');
-                setIsProcessing(false);
-              }
-              break;
-              
-            case 'executing':
-              toast.info(data.message || 'Executing research nodes...', { id: 'research-status' });
-              break;
-              
-            case 'node_start':
-              // Update node status to 'active'
-              if (currentResearch && data.data?.node_id) {
-                setCurrentResearch(prev => {
-                  if (!prev) return null;
-                  
-                  const nodeId = `${prev.id}-node-${data.data.node_id}`;
-                  return {
-                    ...prev,
-                    nodes: prev.nodes.map(node => 
-                      node.id === nodeId ? { ...node, status: 'active' } : node
-                    )
-                  };
-                });
-              }
-              break;
-              
-            case 'node_complete':
-              // Update node status to 'completed'
-              if (currentResearch && data.data?.node_id) {
-                setCurrentResearch(prev => {
-                  if (!prev) return null;
-                  
-                  const nodeId = `${prev.id}-node-${data.data.node_id}`;
-                  return {
-                    ...prev,
-                    nodes: prev.nodes.map(node => 
-                      node.id === nodeId ? { ...node, status: 'completed', result: data.data.result } : node
-                    )
-                  };
-                });
-              }
-              break;
-              
-            case 'complete':
-              toast.success('Research complete!', { id: 'research-status' });
-              // Update research status
-              if (currentResearch) {
-                const completedResearch = {
-                  ...currentResearch,
-                  status: 'completed' as const,
-                  report: data.data?.report
-                };
-                setCurrentResearch(completedResearch);
-                setResearchHistory(prev => 
-                  prev.map(r => r.id === completedResearch.id ? completedResearch : r)
-                );
-              }
-              break;
-              
-            case 'error':
-              setIsProcessing(false);
-              toast.error(`Error: ${data.message}`, { id: 'research-status' });
-              break;
-          }
-        } catch (error) {
-          console.error('Error processing WebSocket message:', error);
-        }
-      };
-      
-      websocket.onerror = (error) => {
-        console.error('WebSocket error:', error);
-        toast.error('Connection to research server failed. Reconnecting...');
-        setStatusMessage("Connection to research server failed. Reconnecting...");
-        
-        // If we were processing, reset the state to allow new research
-        if (isProcessing) {
-          setIsProcessing(false);
-        }
-        
-        // Try to reconnect after a short delay
-        setTimeout(setupWebSocket, 3000);
-      };
-      
-      websocket.onclose = (event) => {
-        console.log('WebSocket connection closed', event.code, event.reason);
-        
-        // If this wasn't a normal closure, try to reconnect
-        if (event.code !== 1000) {
-          toast.error('Connection to research server lost. Reconnecting...');
-          setStatusMessage("Connection lost. Attempting to reconnect...");
-          
-          // If we were processing, reset the state to allow new research
-          if (isProcessing) {
-            setIsProcessing(false);
-          }
-          
-          setTimeout(setupWebSocket, 3000);
-        }
-      };
-    };
-    
-    // Initialize WebSocket
-    setupWebSocket();
-    
-    return () => {
-      if (websocket) {
-        // Use clean closure code to indicate intentional disconnect
-        websocket.close(1000, 'Component unmounted');
-      }
-    };
-  }, []); // Empty dependency array to run only once on mount
   
   return (
     <SidebarProvider>

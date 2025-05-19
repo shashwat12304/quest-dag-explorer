@@ -21,33 +21,71 @@ import { ZoomIn, ZoomOut, Maximize } from 'lucide-react';
 
 import '@xyflow/react/dist/style.css';
 import './dagviewer-overrides.css';
+import { cn } from '@/lib/utils';
 
-// Simple node component styled to match the image
+// Enhanced styling for visual cues
+const statusColorMap = {
+  waiting: 'bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-700',
+  active: 'bg-blue-50 dark:bg-blue-950 border-blue-400 dark:border-blue-600 shadow-blue-100 dark:shadow-blue-900',
+  completed: 'bg-green-50 dark:bg-green-950 border-green-400 dark:border-green-600',
+  error: 'bg-red-50 dark:bg-red-950 border-red-400 dark:border-red-600'
+};
+
+// Enhanced node component with better status visualization
 const ResearchNodeComponent = memo(({ data, isConnectable }: NodeProps) => {
   // Get label from data with fallbacks
   const label = typeof data?.label === 'string' ? data.label : 'Research Task';
   const fullTitle = typeof data?.fullTitle === 'string' ? data.fullTitle : label;
+  const status = data?.status || 'waiting';
   
   return (
     <div 
-      className="px-4 py-3 bg-white dark:bg-gray-800 border-2 border-blue-500 rounded-lg shadow-md text-center node-content"
-      title={fullTitle} // Show full title on hover
+      className={cn(
+        "px-4 py-3 rounded-lg shadow-md text-center node-content border-2 transition-all duration-300",
+        statusColorMap[status as keyof typeof statusColorMap], 
+        status === 'active' && "animate-pulse"
+      )}
+      title={`${fullTitle} - Status: ${status}`}
     >
       <Handle 
         type="target" 
         position={Position.Left} 
         isConnectable={isConnectable} 
-        className="w-3 h-3 bg-blue-500 border border-white" 
+        className={cn(
+          "w-3 h-3 border border-white", 
+          status === 'active' ? 'bg-blue-500' : 
+          status === 'completed' ? 'bg-green-500' : 
+          status === 'error' ? 'bg-red-500' : 'bg-gray-300'
+        )}
         style={{ left: -7 }}
       />
+      
+      {/* Status indicator dot */}
+      <div className="absolute -top-2 -right-2 transform translate-x-2 -translate-y-2">
+        <div 
+          className={cn(
+            "w-4 h-4 rounded-full border border-white shadow-sm",
+            status === 'active' ? 'bg-blue-500 animate-ping' : 
+            status === 'completed' ? 'bg-green-500' : 
+            status === 'error' ? 'bg-red-500' : 'bg-gray-300'
+          )}
+        />
+      </div>
+      
       <div className="font-bold text-sm text-wrap node-title">
         {label}
       </div>
+      
       <Handle 
         type="source" 
         position={Position.Right} 
         isConnectable={isConnectable} 
-        className="w-3 h-3 bg-blue-500 border border-white" 
+        className={cn(
+          "w-3 h-3 border border-white", 
+          status === 'active' ? 'bg-blue-500' : 
+          status === 'completed' ? 'bg-green-500' : 
+          status === 'error' ? 'bg-red-500' : 'bg-gray-300'
+        )}
         style={{ right: -7 }}
       />
     </div>
@@ -137,17 +175,11 @@ const DAGViewer = ({ nodes, edges, onNodeClick, isEditable = false }: DAGViewerP
       data: { 
         label: truncatedLabel,
         fullTitle: nodeTitle, // Store full title for tooltip
+        status: node.status, // Pass status to the node component
+        nodeId: node.data?.nodeId,
       },
       position: { x: 0, y: 0 }, // Will be auto-layouted
       className: getNodeClass(node.status),
-      style: {
-        background: 'white',
-        border: '2px solid #3b82f6',
-        borderRadius: '8px',
-        padding: '10px 15px',
-        minWidth: 150,
-        boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
-      }
     };
   }), [nodes, getNodeClass]);
 
