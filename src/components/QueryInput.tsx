@@ -42,12 +42,12 @@ const QueryInput = ({
 
   return (
     <div className="border-t bg-card shadow-lg transition-all duration-300">
-      <div className="flex items-center justify-between px-4 py-2 border-b">
+      <div className="flex items-center justify-between px-3 sm:px-6 py-3 border-b">
         <div className="font-medium text-sm">Research Query</div>
       </div>
-      <div className="p-4">
+      <div className="px-3 sm:px-6 py-3 sm:py-4">
         {isResearchRunning && (
-          <div className="flex items-center space-x-2 mb-4">
+          <div className="flex flex-wrap items-center gap-3 mb-4">
             {isPaused ? (
               <Button 
                 variant="outline" 
@@ -83,25 +83,25 @@ const QueryInput = ({
               Edit Plan
             </Button>
             {isResearchRunning && currentQuery && (
-              <div className="text-sm text-muted-foreground ml-auto">
-                Current: <span className="font-medium">{currentQuery}</span>
+              <div className="w-full sm:w-auto text-sm text-muted-foreground sm:ml-auto mt-2 sm:mt-0">
+                Current: <span className="font-medium truncate inline-block max-w-[16rem] align-bottom">{currentQuery}</span>
               </div>
             )}
           </div>
         )}
         
-        <form onSubmit={handleSubmit} className="flex gap-2">
+        <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row gap-3">
           <Input
             placeholder="Enter a research question..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            className="flex-1"
+            className="flex-1 py-2"
             disabled={isProcessing || isResearchRunning}
           />
           <Button 
             type="submit" 
             disabled={!query.trim() || isProcessing || isResearchRunning}
-            className="bg-research-primary hover:bg-research-primary/80"
+            className="bg-research-primary hover:bg-research-primary/80 px-5 w-full sm:w-auto"
           >
             {isProcessing ? (
               <>
@@ -124,7 +124,7 @@ const QueryInput = ({
         </form>
         
         {isProcessing && (
-          <div className="mt-4 p-2 bg-research-primary/10 border border-research-primary/30 rounded-md">
+          <div className="mt-4 p-3 bg-research-primary/10 border border-research-primary/30 rounded-md">
             <div className="text-sm text-research-primary font-medium flex items-center gap-2">
               <motion.div
                 animate={{ rotate: 360 }}
@@ -132,7 +132,7 @@ const QueryInput = ({
               >
                 <Loader2 className="h-4 w-4" />
               </motion.div>
-              Generating research DAG. This may take a few moments...
+              <span className="line-clamp-2">Generating research DAG. This may take a few moments...</span>
             </div>
           </div>
         )}

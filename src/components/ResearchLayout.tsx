@@ -5,15 +5,16 @@ import ResearchHistoryComponent from '@/components/ResearchHistory';
 import DAGViewer from '@/components/DAGViewer';
 import QueryInput from '@/components/QueryInput';
 import ResearchDetails from '@/components/ResearchDetails';
+import ResearchReport from '@/components/ResearchReport';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
-import { Moon, Sun, PanelLeftClose, PanelLeft, Loader2, Search } from 'lucide-react';
+import { Moon, Sun, PanelLeftClose, PanelLeft, Loader2, Search, FileText } from 'lucide-react';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import axios from 'axios';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import useWebSocket, { WebSocketMessage, DagStructure, NodeStatusUpdate, ResearchCompleted } from '@/hooks/useWebSocket';
 
 // API URLs
@@ -115,6 +116,8 @@ const ResearchLayout = () => {
   const [showDagAnimation, setShowDagAnimation] = useState(true);
   const [report, setReport] = useState<string | null>(null);
   const [reportTitle, setReportTitle] = useState<string | null>(null);
+  const [showReport, setShowReport] = useState(false);
+  const [isCompletingResearch, setIsCompletingResearch] = useState(false);
   
   // Use this to track if we need to show the animation 
   // (only true on first load of a new DAG)
@@ -198,118 +201,64 @@ const ResearchLayout = () => {
           // Add to history and set as current
           setResearchHistory(prev => [...prev, newResearch]);
           setCurrentResearch(newResearch);
-          setSelectedNode(undefined);
-          setShowDagAnimation(true);
+          
+          // Hide the report view if it was showing
+          setShowReport(false);
           break;
           
         case 'node_status_update':
           // Node status update received
           const nodeUpdate = message as NodeStatusUpdate;
-          console.log("Node status update received:", nodeUpdate);
+          console.log("Node status update:", nodeUpdate);
           
           if (currentResearch) {
-            // Map API status to frontend status
-            let frontendStatus: 'waiting' | 'active' | 'completed' | 'error' = 'waiting';
-            
-            // Improved status mapping with better logging
-            console.log(`Mapping backend status '${nodeUpdate.status}' for node ${nodeUpdate.node_id}`);
-            
-            switch (nodeUpdate.status) {
-              case 'running':
-                frontendStatus = 'active';
-                console.log(`Node ${nodeUpdate.node_id} status mapped to 'active'`);
-                break;
-              case 'completed':
-                frontendStatus = 'completed';
-                console.log(`Node ${nodeUpdate.node_id} status mapped to 'completed'`);
-                break;
-              case 'error':
-                frontendStatus = 'error';
-                console.log(`Node ${nodeUpdate.node_id} status mapped to 'error'`);
-                break;
-              default:
-                console.warn(`Unknown node status: ${nodeUpdate.status}`);
-                frontendStatus = 'waiting';
-            }
-            
-            // Find the node to update using the API node ID
-            const nodeToUpdate = findNodeByApiId(currentResearch, nodeUpdate.node_id);
-            
-            if (nodeToUpdate) {
-              console.log(`Found node to update: ${nodeToUpdate.id}, current status: ${nodeToUpdate.status}, new status: ${frontendStatus}`);
-            } else {
-              console.warn(`Could not find node with API ID ${nodeUpdate.node_id} in the current research plan`);
-            }
-            
-            // Update the research plan with the new node status
             const updatedResearch = updateNodeStatus(
-              currentResearch, 
-              nodeUpdate.node_id, 
-              frontendStatus, 
+              currentResearch,
+              nodeUpdate.node_id,
+              nodeUpdate.status,
               nodeUpdate.output_summary
             );
-            
-            // Update state
             setCurrentResearch(updatedResearch);
-            setResearchHistory(prev => 
-              prev.map(r => r.id === updatedResearch.id ? updatedResearch : r)
-            );
-            
-            // If the selected node was updated, refresh the selection
-            if (selectedNode && selectedNode.data?.nodeId === nodeUpdate.node_id) {
-              const updatedNode = findNodeByApiId(updatedResearch, nodeUpdate.node_id);
-              setSelectedNode(updatedNode);
-            }
-            
-            // Show toast for node status change
-            if (frontendStatus === 'active') {
-              toast.info(`Node ${nodeUpdate.node_id} (${nodeUpdate.title}) started execution`);
-            } else if (frontendStatus === 'completed') {
-              toast.success(`Node ${nodeUpdate.node_id} (${nodeUpdate.title}) completed`);
-            } else if (frontendStatus === 'error') {
-              toast.error(`Node ${nodeUpdate.node_id} (${nodeUpdate.title}) failed: ${nodeUpdate.output_summary || 'Unknown error'}`);
-            }
-          } else {
-            console.warn("Received node status update but no current research plan is loaded.");
           }
           break;
           
         case 'research_completed':
-          // Research completed
-          const researchComplete = message as ResearchCompleted;
-          console.log("Research completed:", researchComplete);
+          // Research completion message received
+          const completionData = message as ResearchCompleted;
+          console.log("Research completed:", completionData);
           
-          setIsProcessing(false);
-          setReportTitle(researchComplete.title);
-          stopStatusPolling(); // Stop any active polling
+          // Update report title and content
+          setReportTitle(completionData.title);
           
-          if (currentResearch) {
-            // Mark research as completed
-            const completedResearch = {
-              ...currentResearch,
-              status: 'completed' as const,
-              title: researchComplete.title
-            };
+          // Show the completion animation
+          setIsCompletingResearch(true);
+          
+          // After 3 seconds, show the report
+          setTimeout(() => {
+            // Update the report if we received data in this message
+            if (completionData.report_summary) {
+              setReport(completionData.report_summary);
+            }
             
-            setCurrentResearch(completedResearch);
-            setResearchHistory(prev => 
-              prev.map(r => r.id === completedResearch.id ? completedResearch : r)
-            );
+            // Fetch the full report if needed
+            if (!completionData.report_summary) {
+              fetchFullReport();
+            }
             
-            // Show completion toast
-            toast.success(`Research completed: ${researchComplete.title}`, {
-              description: 'The full report is now available'
-            });
-          }
+            // Show the report view after animation
+            setIsCompletingResearch(false);
+            setShowReport(true);
+          }, 3000);
+          
           break;
           
         default:
-          console.log(`Unhandled WebSocket message type: ${message.type}`);
+          console.log("Unknown message type:", message.type);
       }
     } catch (error) {
-      console.error("Error processing WebSocket message:", error);
+      console.error("Error handling WebSocket message:", error);
     }
-  }, [currentResearch, query, selectedNode, stopStatusPolling]);
+  }, [currentResearch, query, stopStatusPolling]);
   
   // Update the WebSocket hook with onStatusChange
   const { status: wsStatus, sendMessage, isConnected } = useWebSocket({
@@ -549,10 +498,91 @@ const ResearchLayout = () => {
     setSidebarCollapsed(!sidebarCollapsed);
   };
   
+  // Add function to fetch the full report
+  const fetchFullReport = async () => {
+    try {
+      const response = await axios.get(API_ENDPOINTS.report);
+      if (response.data && response.data.report) {
+        setReport(response.data.report);
+        if (response.data.title) {
+          setReportTitle(response.data.title);
+        }
+      } else {
+        console.error("Invalid report data received");
+      }
+    } catch (error) {
+      console.error("Error fetching report:", error);
+      toast.error("Failed to fetch the research report");
+    }
+  };
+  
+  // Function to go back to DAG view from report
+  const handleBackToDag = () => {
+    setShowReport(false);
+  };
+  
   return (
     <SidebarProvider>
-      <div className="min-h-screen flex w-full bg-background text-foreground transition-colors duration-300">
-        {isAnimating && (
+      <div className="flex min-h-screen h-screen w-full overflow-hidden bg-background">
+        {/* Animated overlay for report completion */}
+        <AnimatePresence>
+          {isCompletingResearch && (
+            <motion.div 
+              className="fixed inset-0 z-50 flex items-center justify-center bg-background/90 backdrop-blur-md"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+            >
+              <motion.div 
+                className="flex flex-col items-center gap-6 p-6 sm:p-10 bg-card rounded-xl shadow-xl border border-research-primary/30 w-[90%] max-w-md"
+                initial={{ scale: 0.9, y: 20 }}
+                animate={{ scale: 1, y: 0 }}
+                transition={{ delay: 0.1, duration: 0.5, type: "spring" }}
+              >
+                <motion.div
+                  animate={{
+                    scale: [1, 1.1, 1],
+                    opacity: [0.7, 1, 0.7],
+                  }}
+                  transition={{
+                    duration: 2.5,
+                    repeat: Infinity,
+                    ease: "easeInOut"
+                  }}
+                  className="relative"
+                >
+                  <div className="absolute inset-0 bg-research-primary/20 rounded-full blur-xl"></div>
+                  <motion.div
+                    animate={{ rotate: 360 }}
+                    transition={{
+                      duration: 3,
+                      repeat: Infinity,
+                      ease: "linear"
+                    }}
+                  >
+                    <FileText className="h-16 w-16 text-research-primary" />
+                  </motion.div>
+                </motion.div>
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.3 }}
+                  className="text-center"
+                >
+                  <h3 className="text-xl font-bold mb-2 bg-gradient-to-r from-research-primary to-research-accent bg-clip-text text-transparent">
+                    Research Complete
+                  </h3>
+                  <p className="text-muted-foreground">
+                    Finalizing your comprehensive research report...
+                  </p>
+                </motion.div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+        
+        {/* Processing animation */}
+        {isProcessing && (
           <motion.div 
             className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-md"
             initial={{ opacity: 0 }}
@@ -560,7 +590,7 @@ const ResearchLayout = () => {
             exit={{ opacity: 0 }}
           >
             <motion.div 
-              className="flex flex-col items-center gap-6 p-10 bg-card rounded-xl shadow-xl border border-research-primary/30"
+              className="flex flex-col items-center gap-6 p-6 sm:p-10 bg-card rounded-xl shadow-xl border border-research-primary/30 w-[90%] max-w-md"
               initial={{ scale: 0.9, y: 20 }}
               animate={{ scale: 1, y: 0 }}
               transition={{ delay: 0.1, duration: 0.5, type: "spring" }}
@@ -596,17 +626,20 @@ const ResearchLayout = () => {
                 className="text-center"
               >
                 <h3 className="text-xl font-bold mb-2 bg-gradient-to-r from-research-primary to-research-accent bg-clip-text text-transparent">
-                  Building Research Graph
+                  {showDagAnimation ? "Building Research Graph" : "Researching"}
                 </h3>
                 <p className="text-muted-foreground">
-                  Creating your Directed Acyclic Graph for comprehensive research...
+                  {statusMessage || "Generating research DAG..."}
                 </p>
               </motion.div>
             </motion.div>
           </motion.div>
         )}
+        
         {/* Sidebar */}
-        <div className={sidebarCollapsed ? "w-14 transition-all duration-300 flex flex-col border-r border-sidebar-border bg-sidebar-background shadow-lg" : "w-80 transition-all duration-300 flex flex-col border-r border-sidebar-border bg-sidebar-background shadow-lg"}>
+        <div className={sidebarCollapsed ? 
+          "w-14 shrink-0 transition-all duration-300 flex flex-col border-r border-sidebar-border bg-sidebar-background shadow-lg" : 
+          "w-[240px] sm:w-[260px] md:w-[280px] shrink-0 transition-all duration-300 flex flex-col border-r border-sidebar-border bg-sidebar-background shadow-lg"}>
           {/* Collapse/Expand Button */}
           <button
             onClick={toggleSidebar}
@@ -626,71 +659,103 @@ const ResearchLayout = () => {
             </div>
           )}
         </div>
+        
         {/* Main Content */}
-        <div className="flex-1 flex flex-col h-screen overflow-hidden">
-          <div className="p-4 border-b flex justify-between items-center bg-card/50 backdrop-blur-sm shadow-sm">
+        <div className="flex-1 flex flex-col h-screen w-full overflow-hidden">
+          <div className="px-4 sm:px-6 py-4 border-b flex justify-between items-center bg-card/50 backdrop-blur-sm shadow-sm">
             <div className="flex items-center gap-2">
-              <h1 className="text-xl font-semibold">Deep Research Assistant</h1>
+              <h1 className="text-lg sm:text-xl font-semibold">Deep Research Assistant</h1>
             </div>
             <div className="flex items-center gap-2">
               <ThemeToggle />
             </div>
           </div>
+          
           {currentResearch ? (
             <>
               {readOnly && (
-                <div className="bg-yellow-100 text-yellow-800 px-4 py-2 text-center font-semibold border-b border-yellow-300">
+                <div className="bg-yellow-100 text-yellow-800 px-4 sm:px-6 py-2 text-center font-semibold border-b border-yellow-300">
                   Viewing a previous snapshot (read-only)
                 </div>
               )}
-              <div className="p-4 border-b bg-card/30 backdrop-blur-sm">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-lg font-semibold">{currentResearch.query}</h2>
-                  {isEditable && !readOnly && (
-                    <Button onClick={handleSaveEdits} variant="default" className="bg-research-accent hover:bg-research-accent/80 text-white transition-colors">
-                      Save Edits
-                    </Button>
-                  )}
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  Status: {currentResearch.status.charAt(0).toUpperCase() + currentResearch.status.slice(1)}
-                </p>
-              </div>
-              <div className="flex-1 flex overflow-hidden">
-                <div className="flex-1 overflow-hidden">
-                  <DAGViewer 
-                    nodes={currentResearch.nodes}
-                    edges={currentResearch.edges}
-                    onNodeClick={handleNodeClick}
-                    isEditable={isEditable && !readOnly}
+              
+              {/* Conditionally render Report or DAG view */}
+              {showReport && report ? (
+                <ResearchReport 
+                  report={report}
+                  title={reportTitle || "Research Report"}
+                  currentResearch={currentResearch}
+                  onBackToDag={handleBackToDag}
+                />
+              ) : (
+                <>
+                  <div className="px-4 sm:px-6 py-4 border-b bg-card/30 backdrop-blur-sm">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <h2 className="text-base sm:text-lg font-semibold">{currentResearch.query}</h2>
+                      <div className="flex gap-3">
+                        {report && (
+                          <Button 
+                            onClick={() => setShowReport(true)} 
+                            variant="default" 
+                            className="bg-research-primary hover:bg-research-primary/80 text-white transition-colors"
+                          >
+                            <FileText className="h-4 w-4 mr-2" />
+                            View Report
+                          </Button>
+                        )}
+                        
+                        {isEditable && !readOnly && (
+                          <Button 
+                            onClick={handleSaveEdits} 
+                            variant="default" 
+                            className="bg-research-accent hover:bg-research-accent/80 text-white transition-colors"
+                          >
+                            Save Edits
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      Status: {currentResearch.status.charAt(0).toUpperCase() + currentResearch.status.slice(1)}
+                    </p>
+                  </div>
+                  <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
+                    <div className="flex-1 h-[60vh] lg:h-auto overflow-hidden">
+                      <DAGViewer 
+                        nodes={currentResearch.nodes}
+                        edges={currentResearch.edges}
+                        onNodeClick={handleNodeClick}
+                        isEditable={isEditable && !readOnly}
+                      />
+                    </div>
+                    <div className="w-full lg:w-80 border-t lg:border-t-0 lg:border-l overflow-y-auto bg-card/30 backdrop-blur-sm">
+                      <ResearchDetails selectedNode={selectedNode} />
+                    </div>
+                  </div>
+                  <QueryInput
+                    onSubmitQuery={() => {}}
+                    onPauseResearch={handlePauseResearch}
+                    onResumeResearch={handleResumeResearch}
+                    onEditResearch={handleEditResearch}
+                    isResearchRunning={!!currentResearch && !readOnly}
+                    isPaused={currentResearch.status === 'paused'}
+                    currentQuery={currentResearch.query}
                   />
-                </div>
-                <div className="w-80 border-l overflow-y-auto bg-card/30 backdrop-blur-sm">
-                  <ResearchDetails selectedNode={selectedNode} />
-                </div>
-              </div>
-              {/* Only show control buttons during active research, but not the full input */}
-              <QueryInput
-                onSubmitQuery={() => {}}
-                onPauseResearch={handlePauseResearch}
-                onResumeResearch={handleResumeResearch}
-                onEditResearch={handleEditResearch}
-                isResearchRunning={!!currentResearch && !readOnly}
-                isPaused={currentResearch.status === 'paused'}
-                currentQuery={currentResearch.query}
-              />
+                </>
+              )}
+              
               {/* Bottom feedback input bar for edits */}
-              {showFeedbackInput && isEditable && !readOnly && (
-                <div className="w-full border-t bg-card shadow-lg transition-all duration-300 p-4 flex items-center gap-2 fixed bottom-0 left-0 z-30">
+              {showFeedbackInput && isEditable && !readOnly && !showReport && (
+                <div className="w-full border-t bg-card shadow-lg transition-all duration-300 px-4 sm:px-6 py-4 flex flex-col sm:flex-row items-center gap-3 fixed bottom-0 left-0 z-30">
                   <input
                     value={feedback}
                     onChange={e => setFeedback(e.target.value)}
                     placeholder="Enter feedback about this edit..."
-                    className="flex-1 pl-4 pr-4 py-3 rounded-lg border border-input bg-background text-base md:text-lg shadow focus-visible:ring-2 focus-visible:ring-research-primary focus:border-research-primary transition-all"
+                    className="w-full flex-1 pl-4 pr-4 py-3 rounded-lg border border-input bg-background text-sm sm:text-base shadow focus-visible:ring-2 focus-visible:ring-research-primary focus:border-research-primary transition-all"
                   />
                   <Button
                     onClick={handleSaveEdits}
-                    className="rounded-lg bg-gradient-to-r from-research-primary to-research-accent hover:opacity-90 transition-opacity text-white h-12 px-7 shadow-lg flex items-center gap-2 text-base font-semibold"
+                    className="w-full sm:w-auto rounded-lg bg-gradient-to-r from-research-primary to-research-accent hover:opacity-90 transition-opacity text-white h-12 px-7 shadow-lg flex items-center gap-2 text-base font-semibold"
                   >
                     Save Edits
                   </Button>
@@ -698,85 +763,31 @@ const ResearchLayout = () => {
               )}
             </>
           ) :
-            <div className="flex-1 flex items-center justify-center flex-col p-4">
-              <div className="max-w-md text-center p-8 rounded-xl bg-card shadow-lg border border-border/50">
-                <h1 className="text-2xl font-bold mb-2 bg-gradient-to-r from-research-primary to-research-accent bg-clip-text text-transparent">Deep Research Assistant</h1>
-                <p className="text-muted-foreground mb-6">
+            <div className="flex-1 flex items-center justify-center flex-col p-4 sm:p-8 w-full">
+              <div className="w-full max-w-2xl text-center p-6 sm:p-10 rounded-xl bg-card shadow-lg border border-border/50 mx-auto">
+                <h1 className="text-xl sm:text-2xl font-bold mb-4 bg-gradient-to-r from-research-primary to-research-accent bg-clip-text text-transparent">Deep Research Assistant</h1>
+                <p className="text-muted-foreground mb-8 max-w-lg mx-auto">
                   Enter a research question below to start a deep research process using a 
                   Directed Acyclic Graph (DAG) approach.
                 </p>
                 
-                {isProcessing && (
-                  <motion.div 
-                    className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-md"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                  >
-                    <motion.div 
-                      className="flex flex-col items-center gap-6 p-10 bg-card rounded-xl shadow-xl border border-research-primary/30"
-                      initial={{ scale: 0.9, y: 20 }}
-                      animate={{ scale: 1, y: 0 }}
-                      transition={{ delay: 0.1, duration: 0.5, type: "spring" }}
-                    >
-                      <motion.div
-                        animate={{
-                          scale: [1, 1.1, 1],
-                          opacity: [0.7, 1, 0.7],
-                        }}
-                        transition={{
-                          duration: 2.5,
-                          repeat: Infinity,
-                          ease: "easeInOut"
-                        }}
-                        className="relative"
-                      >
-                        <div className="absolute inset-0 bg-research-primary/20 rounded-full blur-xl"></div>
-                        <motion.div
-                          animate={{ rotate: 360 }}
-                          transition={{
-                            duration: 3,
-                            repeat: Infinity,
-                            ease: "linear"
-                          }}
-                        >
-                          <Loader2 className="h-16 w-16 text-research-primary" />
-                        </motion.div>
-                      </motion.div>
-                      <motion.div
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: 0.3 }}
-                        className="text-center"
-                      >
-                        <h3 className="text-xl font-bold mb-2 bg-gradient-to-r from-research-primary to-research-accent bg-clip-text text-transparent">
-                          Researching
-                        </h3>
-                        <p className="text-muted-foreground">
-                          {statusMessage || "Generating research DAG..."}
-                        </p>
-                      </motion.div>
-                    </motion.div>
-                  </motion.div>
-                )}
-                
-                <div className="flex items-center space-x-2 mt-4">
+                <div className="flex flex-col sm:flex-row items-center gap-3 mt-6 max-w-2xl mx-auto">
                   <input
                     value={query}
                     onChange={e => setQuery(e.target.value)}
                     placeholder="Enter your research query..."
-                    className="flex-1 pl-4 pr-4 py-3 rounded-lg border border-input bg-background text-base md:text-lg shadow focus-visible:ring-2 focus-visible:ring-research-primary focus:border-research-primary transition-all"
+                    className="w-full flex-1 pl-4 pr-4 py-3 sm:py-4 rounded-lg border border-input bg-background text-sm sm:text-base shadow focus-visible:ring-2 focus-visible:ring-research-primary focus:border-research-primary transition-all"
                     disabled={isProcessing}
                   />
                   <Button
                     onClick={() => handleSubmitQuery(query)}
-                    className="rounded-lg bg-gradient-to-r from-research-primary to-research-accent hover:opacity-90 transition-opacity text-white h-12 px-7 shadow-lg flex items-center gap-2 text-base font-semibold"
+                    className="w-full sm:w-auto rounded-lg bg-gradient-to-r from-research-primary to-research-accent hover:opacity-90 transition-opacity text-white h-12 sm:h-14 px-6 sm:px-8 shadow-lg flex items-center gap-2 text-base font-semibold"
                     disabled={isProcessing || !query.trim()}
                   >
                     {isProcessing ? (
                       <Loader2 className="h-5 w-5 animate-spin" />
                     ) : (
-                      <Search className="h-5 w-5 mr-1" />
+                      <Search className="h-5 w-5 mr-2" />
                     )}
                     {isProcessing ? "Processing..." : "Research"}
                   </Button>

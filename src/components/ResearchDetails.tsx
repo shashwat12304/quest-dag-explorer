@@ -1,8 +1,5 @@
-
 import { ResearchNode } from '@/types/dag';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Badge } from '@/components/ui/badge';
-import { motion } from 'framer-motion';
+import { cn } from '@/lib/utils';
 
 interface ResearchDetailsProps {
   selectedNode?: ResearchNode;
@@ -11,66 +8,83 @@ interface ResearchDetailsProps {
 const ResearchDetails = ({ selectedNode }: ResearchDetailsProps) => {
   if (!selectedNode) {
     return (
-      <div className="p-4 h-full flex flex-col justify-center items-center text-center text-muted-foreground">
-        <div className="w-16 h-16 border-4 rounded-full border-dashed border-muted-foreground/30 mb-4 animate-spin-slow"></div>
-        <p className="max-w-xs">Select a node to see research details</p>
+      <div className="p-4 h-full flex items-center justify-center">
+        <div className="text-center text-muted-foreground">
+          <p>Select a node to view details</p>
+        </div>
       </div>
     );
   }
 
-  const getStatusBadge = (status: string) => {
+  // Get status-specific styling
+  const getStatusBadgeClass = (status: string) => {
     switch (status) {
-      case 'waiting':
-        return <Badge variant="outline" className="bg-amber-500/20 text-amber-500 border-amber-300/50">Waiting</Badge>;
-      case 'active':
-        return <Badge className="bg-blue-500 animate-pulse">Active</Badge>;
       case 'completed':
-        return <Badge className="bg-green-500">Completed</Badge>;
+        return 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300';
+      case 'active':
+        return 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 animate-pulse';
       case 'error':
-        return <Badge variant="destructive">Error</Badge>;
-      default:
-        return null;
+        return 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300';
+      default: // waiting
+        return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300';
     }
   };
 
   return (
-    <motion.div
-      initial={{ opacity: 0, x: 20 }}
-      animate={{ opacity: 1, x: 0 }}
-      transition={{ duration: 0.3 }}
-      className="h-full"
-    >
-      <ScrollArea className="h-full">
-        <div className="p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <h3 className="text-lg font-medium">{selectedNode.label}</h3>
-            {getStatusBadge(selectedNode.status)}
-          </div>
+    <div className="p-4 h-full overflow-y-auto">
+      <div className="space-y-4">
+        <div>
+          <h3 className="text-lg font-semibold">Node Information</h3>
+          <div className="text-sm text-muted-foreground">ID: {selectedNode.id}</div>
           
-          {selectedNode.description && (
-            <div className="rounded-md bg-card p-4 border shadow-sm">
-              <p className="text-sm leading-relaxed">
-                {selectedNode.description}
-              </p>
-            </div>
-          )}
-
-          <div className="mt-6">
-            <h4 className="text-sm font-medium mb-2 text-muted-foreground">Node Information</h4>
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              <div className="bg-muted/30 p-2 rounded">
-                <span className="block text-muted-foreground">ID</span>
-                <span className="font-mono">{selectedNode.id}</span>
-              </div>
-              <div className="bg-muted/30 p-2 rounded">
-                <span className="block text-muted-foreground">Status</span>
-                <span>{selectedNode.status}</span>
-              </div>
-            </div>
+          <div className="mt-2">
+            <span className={cn(
+              "text-xs font-medium rounded-full px-2.5 py-1",
+              getStatusBadgeClass(selectedNode.status)
+            )}>
+              {selectedNode.status}
+            </span>
           </div>
         </div>
-      </ScrollArea>
-    </motion.div>
+
+        <div className="space-y-2">
+          <h4 className="font-medium">Title</h4>
+          <div className="bg-card p-3 rounded border text-sm">
+            {selectedNode.label}
+          </div>
+        </div>
+
+        {selectedNode.description && (
+          <div className="space-y-2">
+            <h4 className="font-medium">Description</h4>
+            <div className="bg-card p-3 rounded border text-sm">
+              {selectedNode.description}
+            </div>
+          </div>
+        )}
+
+        {selectedNode.data && selectedNode.data.assigned_agent && (
+          <div className="space-y-2">
+            <h4 className="font-medium">Assigned Agent</h4>
+            <div className="bg-card p-3 rounded border text-sm flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-research-primary"></span>
+              {selectedNode.data.assigned_agent}
+            </div>
+          </div>
+        )}
+
+        {selectedNode.data && selectedNode.data.output && (
+          <div className="space-y-2">
+            <h4 className="font-medium">Output</h4>
+            <div className="bg-card p-3 rounded border text-sm max-h-64 overflow-y-auto">
+              <pre className="whitespace-pre-wrap font-mono text-xs">
+                {selectedNode.data.output}
+              </pre>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
   );
 };
 
