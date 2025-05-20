@@ -559,7 +559,8 @@ const ResearchLayout = () => {
   const handleBackToDag = useCallback(() => {
     console.log("DEBUG: Back to DAG clicked");
     setShowReport(false);
-    // Make sure currentResearch is still available
+    setIsProcessing(false);
+    setIsCompletingResearch(false);
     if (!currentResearch) {
       console.error("No current research available when returning to DAG");
     }
