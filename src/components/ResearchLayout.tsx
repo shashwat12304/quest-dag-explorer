@@ -118,6 +118,7 @@ const ResearchLayout = () => {
   const [reportTitle, setReportTitle] = useState<string | null>(null);
   const [showReport, setShowReport] = useState(false);
   const [isCompletingResearch, setIsCompletingResearch] = useState(false);
+  const [manuallyViewingDag, setManuallyViewingDag] = useState(false);
   
   // Use this to track if we need to show the animation 
   // (only true on first load of a new DAG)
@@ -301,7 +302,8 @@ const ResearchLayout = () => {
     onStatusChange: (status) => {
       setWsConnected(status === 'connected');
       if (status === 'connected') {
-        toast.success("WebSocket connected. Real-time updates are active.");
+        // Remove success toast notification
+        console.log("WebSocket connected. Real-time updates are active.");
       } else if (status === 'disconnected' || status === 'error') {
         // Only show a toast if we had a connection before
         if (wsConnected) {
@@ -393,6 +395,7 @@ const ResearchLayout = () => {
     setQuery(query);
     setReport(null);
     setReportTitle(null);
+    setManuallyViewingDag(false); // Reset the flag when starting a new query
     
     try {
       // Send the query to the API to start the research process
@@ -561,6 +564,7 @@ const ResearchLayout = () => {
     setShowReport(false);
     setIsProcessing(false);
     setIsCompletingResearch(false);
+    setManuallyViewingDag(true); // Set flag to prevent auto-navigation back to report
     if (!currentResearch) {
       console.error("No current research available when returning to DAG");
     }
@@ -568,7 +572,8 @@ const ResearchLayout = () => {
 
   // Function to check for completed research and trigger report page transition
   const checkForCompletedResearch = useCallback((research: ResearchPlan) => {
-    if (!research || showReport || isCompletingResearch) return;
+    // Don't proceed if any of these conditions are true
+    if (!research || showReport || isCompletingResearch || manuallyViewingDag) return;
     
     const completedNodes = research.nodes.filter(node => node.status === 'completed').length;
     const totalNodes = research.nodes.length;
@@ -594,7 +599,7 @@ const ResearchLayout = () => {
         console.log("DEBUG: Fallback - showing report page");
       }, 3000);
     }
-  }, [showReport, isCompletingResearch, report, fetchFullReport]);
+  }, [showReport, isCompletingResearch, report, fetchFullReport, manuallyViewingDag]);
 
   // Add this effect to watch for node status changes
   useEffect(() => {
