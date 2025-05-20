@@ -156,9 +156,19 @@ const ResearchLayout = () => {
           } else if (message.status === 'complete') {
             setIsProcessing(false);
             toast.success('Research completed successfully');
+            console.log("DEBUG: Complete status received, showReport:", showReport, "isCompletingResearch:", isCompletingResearch);
+            
             // Set report content if available
             if (message.data?.report) {
               setReport(message.data.report);
+              console.log("DEBUG: Report set from status update, length:", message.data.report.length);
+              
+              // If we received a complete status but no research_completed event,
+              // make sure we transition to the report view
+              if (!isCompletingResearch && !showReport) {
+                console.log("DEBUG: No animation in progress and report not shown - showing report directly");
+                setShowReport(true);
+              }
             }
             // Stop polling if it's active
             stopStatusPolling();
@@ -219,35 +229,58 @@ const ResearchLayout = () => {
               nodeUpdate.output_summary
             );
             setCurrentResearch(updatedResearch);
+            
+            // Debug: Log node completion to track final node
+            if (nodeUpdate.status === 'completed') {
+              console.log(`DEBUG: Node ${nodeUpdate.node_id} (${nodeUpdate.title}) completed. Checking if this is the final node...`);
+              
+              // Count completed nodes
+              const completedNodes = updatedResearch.nodes.filter(node => node.status === 'completed').length;
+              const totalNodes = updatedResearch.nodes.length;
+              console.log(`DEBUG: ${completedNodes}/${totalNodes} nodes completed`);
+              
+              // If this was the last node, check if we should trigger report view
+              if (completedNodes === totalNodes) {
+                console.log("DEBUG: All nodes completed, checking research completion status...");
+                checkForCompletedResearch(updatedResearch);
+              }
+            }
           }
           break;
           
         case 'research_completed':
           // Research completion message received
           const completionData = message as ResearchCompleted;
-          console.log("Research completed:", completionData);
+          console.log("DEBUG: Research completed message received:", completionData);
+          console.log("DEBUG: Current state - isCompletingResearch:", isCompletingResearch, "showReport:", showReport);
           
           // Update report title and content
           setReportTitle(completionData.title);
+          console.log("DEBUG: Report title set to:", completionData.title);
           
           // Show the completion animation
           setIsCompletingResearch(true);
+          console.log("DEBUG: Set isCompletingResearch to true");
           
           // After 3 seconds, show the report
           setTimeout(() => {
+            console.log("DEBUG: 3-second timeout fired, preparing to show report");
             // Update the report if we received data in this message
             if (completionData.report_summary) {
               setReport(completionData.report_summary);
+              console.log("DEBUG: Report summary set from websocket message, length:", completionData.report_summary.length);
             }
             
             // Fetch the full report if needed
             if (!completionData.report_summary) {
+              console.log("DEBUG: No report summary in message, fetching full report");
               fetchFullReport();
             }
             
             // Show the report view after animation
             setIsCompletingResearch(false);
             setShowReport(true);
+            console.log("DEBUG: Set isCompletingResearch to false and showReport to true");
           }, 3000);
           
           break;
@@ -500,12 +533,18 @@ const ResearchLayout = () => {
   
   // Add function to fetch the full report
   const fetchFullReport = async () => {
+    console.log("DEBUG: Fetching full report from API");
     try {
       const response = await axios.get(API_ENDPOINTS.report);
+      console.log("DEBUG: Report API response:", response.data);
+      
       if (response.data && response.data.report) {
         setReport(response.data.report);
+        console.log("DEBUG: Report set from API response, length:", response.data.report.length);
+        
         if (response.data.title) {
           setReportTitle(response.data.title);
+          console.log("DEBUG: Report title set to:", response.data.title);
         }
       } else {
         console.error("Invalid report data received");
@@ -520,6 +559,43 @@ const ResearchLayout = () => {
   const handleBackToDag = () => {
     setShowReport(false);
   };
+
+  // Function to check for completed research and trigger report page transition
+  const checkForCompletedResearch = useCallback((research: ResearchPlan) => {
+    if (!research || showReport || isCompletingResearch) return;
+    
+    const completedNodes = research.nodes.filter(node => node.status === 'completed').length;
+    const totalNodes = research.nodes.length;
+    
+    console.log(`DEBUG: Checking research completion status: ${completedNodes}/${totalNodes} nodes completed`);
+    
+    // If all nodes are completed and we haven't started the completion process yet
+    if (completedNodes === totalNodes && totalNodes > 0) {
+      console.log("DEBUG: All nodes completed but no research_completed message received. Triggering fallback...");
+      
+      // Try to fetch the report if not already set
+      if (!report) {
+        fetchFullReport();
+      }
+      
+      // Show completion animation
+      setIsCompletingResearch(true);
+      
+      // After animation, show report
+      setTimeout(() => {
+        setIsCompletingResearch(false);
+        setShowReport(true);
+        console.log("DEBUG: Fallback - showing report page");
+      }, 3000);
+    }
+  }, [showReport, isCompletingResearch, report, fetchFullReport]);
+
+  // Add this effect to watch for node status changes
+  useEffect(() => {
+    if (currentResearch) {
+      checkForCompletedResearch(currentResearch);
+    }
+  }, [currentResearch, checkForCompletedResearch]);
   
   return (
     <SidebarProvider>
