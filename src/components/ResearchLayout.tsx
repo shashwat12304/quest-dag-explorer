@@ -556,9 +556,14 @@ const ResearchLayout = () => {
   };
   
   // Function to go back to DAG view from report
-  const handleBackToDag = () => {
+  const handleBackToDag = useCallback(() => {
+    console.log("DEBUG: Back to DAG clicked");
     setShowReport(false);
-  };
+    // Make sure currentResearch is still available
+    if (!currentResearch) {
+      console.error("No current research available when returning to DAG");
+    }
+  }, [currentResearch]);
 
   // Function to check for completed research and trigger report page transition
   const checkForCompletedResearch = useCallback((research: ResearchPlan) => {

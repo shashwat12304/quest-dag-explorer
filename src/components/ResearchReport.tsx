@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -18,6 +18,17 @@ interface ResearchReportProps {
 
 const ResearchReport = ({ report, title, currentResearch, onBackToDag }: ResearchReportProps) => {
   const [activeTab, setActiveTab] = useState('formatted');
+
+  // Create a more reliable back handler with useCallback
+  const handleBackClick = useCallback(() => {
+    console.log("Back button clicked");
+    // Call the provided onBackToDag function
+    if (onBackToDag) {
+      onBackToDag();
+    } else {
+      console.error("onBackToDag handler is not defined");
+    }
+  }, [onBackToDag]);
 
   // Create a simple function to handle printing
   const handlePrint = () => {
@@ -149,7 +160,7 @@ const ResearchReport = ({ report, title, currentResearch, onBackToDag }: Researc
 
   return (
     <motion.div 
-      className="flex flex-col h-full"
+      className="flex flex-col h-full overflow-hidden"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.5 }}
@@ -157,11 +168,10 @@ const ResearchReport = ({ report, title, currentResearch, onBackToDag }: Researc
       <div className="p-3 sm:p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between border-b gap-3">
         <div className="flex items-center gap-2 sm:gap-3">
           <Button 
-            variant="ghost" 
-            size="icon" 
-            onClick={onBackToDag}
+            variant="outline" 
+            onClick={handleBackClick}
             title="Back to Research Graph"
-            className="h-8 w-8 sm:h-10 sm:w-10"
+            className="h-8 w-8 sm:h-10 sm:w-10 flex items-center justify-center hover:bg-muted"
           >
             <ArrowLeft className="h-4 w-4 sm:h-5 sm:w-5" />
           </Button>
@@ -188,7 +198,7 @@ const ResearchReport = ({ report, title, currentResearch, onBackToDag }: Researc
         </div>
       </div>
 
-      <Tabs defaultValue={activeTab} className="flex-1 flex flex-col" onValueChange={setActiveTab}>
+      <Tabs defaultValue={activeTab} className="flex-1 flex flex-col h-full overflow-hidden" onValueChange={setActiveTab}>
         <div className="border-b p-1 sm:p-2 px-3 sm:px-6">
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="formatted">Formatted Report</TabsTrigger>
@@ -196,7 +206,7 @@ const ResearchReport = ({ report, title, currentResearch, onBackToDag }: Researc
           </TabsList>
         </div>
 
-        <TabsContent value="formatted" className="flex-1 overflow-auto p-3 sm:p-6 md:p-8 bg-card/30">
+        <TabsContent value="formatted" className="flex-1 overflow-y-auto p-3 sm:p-6 md:p-8 bg-card/30">
           <motion.div 
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
@@ -209,7 +219,7 @@ const ResearchReport = ({ report, title, currentResearch, onBackToDag }: Researc
           </motion.div>
         </TabsContent>
 
-        <TabsContent value="source" className="flex-1 overflow-auto">
+        <TabsContent value="source" className="flex-1 overflow-y-auto">
           <motion.pre 
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
